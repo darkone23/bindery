@@ -18,8 +18,14 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   (5 duplex Letter sheets: signatures 8+8+4, long-edge flip, creep
   compensation, crop/fold marks, registration block) plus
   `build/proof-screen.pdf` (reading-order screen proof). See `PRINTING.md`.
-- Next: M2 structure mining (docling), M3 full volume + apparatus leaves,
-  M4 splice of Tommy's scans (see the plan).
+- **M2 — structure mining** (HOL-255): `just structure` runs the docling
+  layout pass (2.118.0) + tesseract OCR over every archive page and derives
+  per-page structure records, `sarga-map.json` (kanda/sarga → archive page
+  ranges), `toc-draft.md` and `fidelity-report.md`. Boundaries only — no
+  verbatim retype. The impure/unfree tooling (docling deps, model download)
+  is confined to the `.#structure` dev shell used by that recipe.
+- Next: M3 full volume + apparatus leaves, M4 splice of Tommy's scans
+  (see the plan).
 
 ## Interface
 
@@ -31,6 +37,8 @@ just ingest-fixture   # pytest suite (ingest fixture + M1 trim/impose fixture)
 just dataset-fetch    # fetch the Ramayana PDF into gitignored dataset/
 just ingest           # 600 dpi render of dataset/ PDF into archive/ + manifest
 just verify           # recheck archive/ against its manifest
+just structure        # M2: docling layout + tesseract OCR -> sarga map/ToC/fidelity
+just structure-fixture # pytest for the structure stage (pure units + 7-page slice)
 just assemble         # book.toml slice -> build/order.json (manifest-validated)
 just trim             # crop to the trim profile -> build/trim/ + trim.json
 just impose           # duplex Letter imposition -> build/press.pdf + proof
@@ -40,12 +48,18 @@ just proof            # the full M1 chain
 ## Layout
 
 - `bindery.py` — the CLI (stdlib only; renders via poppler `pdftoppm`/`pdfinfo`)
+- `structure.py` — the M2 structure stage (docling + tesseract; heavy imports
+  are lazy so the pure flake never needs them; run via `just structure`)
 - `tests/` — pytest suite; `tests/fixtures/fixture3.pdf` is a committed 3-page
-  fixture so the ingest stage is provable without the 2303-page run
+  fixture so the ingest stage is provable without the 2303-page run;
+  `tests/fixtures/structure-slice/` is a committed 7-page archive slice
+  (archive pages 283–289) so the structure stage is provable end-to-end
 - `dataset/` — downloaded sources (gitignored, never in git)
 - `archive/` — ingest output (gitignored; reproducible from dataset + manifest)
+- `build/` — stage outputs (gitignored), incl. `build/structure/`
 - `flake.nix` — `packages.default` (CLI with poppler on PATH),
-  `devShells.default`, `checks.default` (pytest)
+  `devShells.default`, `devShells.structure` (the only impure/unfree env),
+  `checks.default` (pytest)
 
 ## House rules
 

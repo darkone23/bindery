@@ -12,6 +12,20 @@ build:
 ingest-fixture:
     nix develop -c python3 -m pytest -q tests
 
+# M2 structure pass over the archive (docling layout + tesseract OCR).
+# Impure/unfree tooling is confined to this recipe's nix shell; first run
+# downloads docling layout models to ~/.cache/docling (network needed once).
+structure stage="all":
+    nix develop .#structure -c python3 structure.py {{stage}} \
+        --archive archive --out build/structure
+
+# pytest for the structure stage: pure unit tests + the committed
+# 7-page fixture slice (pages 283-289: Ayodhya title, Canto I -> II
+# boundary) run through the real docling+tesseract pipeline
+structure-fixture:
+    nix develop .#structure -c python3 -m pytest -q \
+        tests/test_structure_units.py tests/test_structure_fixture.py
+
 # build order.json for the book.toml slice (validates against the manifest)
 assemble:
     nix develop -c bindery assemble --book book.toml --out build
