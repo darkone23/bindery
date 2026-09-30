@@ -19,11 +19,14 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   compensation, crop/fold marks, registration block) plus
   `build/proof-screen.pdf` (reading-order screen proof). See `PRINTING.md`.
 - **M2 — structure mining** (HOL-255): `just structure` runs the docling
-  layout pass (2.118.0) + tesseract OCR over every archive page and derives
-  per-page structure records, `sarga-map.json` (kanda/sarga → archive page
-  ranges), `toc-draft.md` and `fidelity-report.md`. Boundaries only — no
-  verbatim retype. The impure/unfree tooling (docling deps, model download)
-  is confined to the `.#structure` dev shell used by that recipe.
+  layout pass (2.118.0) + tesseract OCR over every archive page — each page
+  processed individually and cached — and derives per-page structure
+  records, `sarga-map.json` (kanda/sarga → archive page ranges),
+  `toc-draft.md` and `fidelity-report.md`. Any single page is inspectable
+  on its own: `just page N` answers "what does page N contain?".
+  Boundaries only — no verbatim retype. The impure/unfree tooling (docling
+  deps, model download) is confined to the stage's devenv
+  (`devenv.nix`/`devenv.yaml`, run via `devenv shell`).
 - Next: M3 full volume + apparatus leaves, M4 splice of Tommy's scans
   (see the plan).
 
@@ -38,6 +41,7 @@ just dataset-fetch    # fetch the Ramayana PDF into gitignored dataset/
 just ingest           # 600 dpi render of dataset/ PDF into archive/ + manifest
 just verify           # recheck archive/ against its manifest
 just structure        # M2: docling layout + tesseract OCR -> sarga map/ToC/fidelity
+just page N           # "what does page N contain?" from the per-page records
 just structure-fixture # pytest for the structure stage (pure units + 7-page slice)
 just assemble         # book.toml slice -> build/order.json (manifest-validated)
 just trim             # crop to the trim profile -> build/trim/ + trim.json
@@ -57,9 +61,11 @@ just proof            # the full M1 chain
 - `dataset/` — downloaded sources (gitignored, never in git)
 - `archive/` — ingest output (gitignored; reproducible from dataset + manifest)
 - `build/` — stage outputs (gitignored), incl. `build/structure/`
+- `devenv.nix` / `devenv.yaml` — the structure stage's devenv
+  (`devenv shell`): docling-slim + tesseract + poppler; the only
+  impure/unfree environment (allowUnfree scoped in devenv.yaml)
 - `flake.nix` — `packages.default` (CLI with poppler on PATH),
-  `devShells.default`, `devShells.structure` (the only impure/unfree env),
-  `checks.default` (pytest)
+  `devShells.default`, `checks.default` (pytest; stays unfree-clean)
 
 ## House rules
 

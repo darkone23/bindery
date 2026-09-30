@@ -14,9 +14,14 @@ and image-quality stats. From the per-page records it builds:
 
 Design: Paperclip HOL-250 plan rev 1, milestone M2 (issue HOL-255).
 Boundaries only — no verbatim retype. The heavy deps (docling, torch,
-tesseract) are confined to this stage; import them lazily so the pure
-flake (`nix build`, plain pytest) never needs them. The structure shell
-is the only nix environment allowed to be impure/unfree.
+tesseract) are confined to this stage's devenv (`devenv.nix`); import
+them lazily so the pure flake (`nix build`, plain pytest) never needs
+them.
+
+Per-page mode: every page is processed individually and cached, so any
+page can be inspected on its own — `page N` prints a plain-language
+"what does page N contain?" summary (kanda/sarga placement, block
+bboxes, verse runs, quality flags) straight from its record.
 
 Passes are resumable: `pages` skips per-page outputs that already
 exist, `map` rebuilds artifacts from the raw pass outputs on disk.
@@ -97,6 +102,31 @@ def normalize_canto_numeral(tok: str) -> str:
     (thin strokes read as 1/|/l, e.g. 'Canto II' -> 'Canto 11')."""
     return (tok.replace("|", "I").replace("l", "I").replace("!", "I")
             .replace("1", "I").upper())
+
+
+def compact_runs(nums: list[int]) -> str:
+    """[1,2,3,5,7,8] -> '1-3, 5, 7-8' (None -> '-')"""
+    nums = sorted(set(nums))
+    if not nums:
+        return "-"
+    runs: list[tuple[int, int]] = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+            continue
+        runs.append((start, prev))
+        start = prev = n
+    runs.append((start, prev))
+    return ", ".join(f"{a}-{b}" if b > a else f"{a}" for a, b in runs)
+
+
+def fmt_bbox_pct(bbox: list[float] | None) -> str:
+    """[l,t,r,b] fractions -> 'x 4.0-36.8%, y 7.5-92.1%' or 'none'."""
+    if not bbox:
+        return "none"
+    l, t, r, b = bbox
+    return f"x {l * 100:.1f}-{r * 100:.1f}%, y {t * 100:.1f}-{b * 100:.1f}%"
 
 
 def is_english_word(text: str) -> bool:
@@ -544,6 +574,98 @@ def build_fidelity_report(records: list[dict], smap: dict,
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Page inspector: "what does page X contain?" (per-page mode, board ask)
+# ---------------------------------------------------------------------------
+
+def page_context(record: dict, smap: dict | None) -> str:
+    """Where this page sits in the kanda/sarga map, in one phrase."""
+    page = record["page"]
+    d = record["derived"]
+    if smap is None:
+        return "sarga map not built yet (run `just structure` to completion)"
+    for b in smap.get("interstitial_blocks", []):
+        if b["start_page"] <= page <= b["end_page"]:
+            return (f"interstitial (front matter / part division), "
+                    f"pages {b['start_page']}-{b['end_page']}")
+    for k in smap["kandas"]:
+        if not (k["start_page"] <= page <= k["end_page"]):
+            continue
+        for s in k["sargas"]:
+            if s["start_page"] <= page <= s["end_page"]:
+                if s["heading_page"] == page:
+                    role = (f"sarga {s['sarga']} heading page "
+                            f"(Canto {s['printed_numeral'] or '?'})")
+                elif page == s["start_page"]:
+                    role = f"sarga {s['sarga']} start (heading unparsed)"
+                else:
+                    role = f"sarga {s['sarga']} body"
+                break
+        else:
+            role = "kanda body outside parsed sarga runs"
+        extras = []
+        if page == k["start_page"]:
+            extras.append("kanda opening")
+        if page == k["end_page"] and d.get("kanda_end_marker"):
+            extras.append("carries 'END OF KANDA' marker")
+        if extras:
+            role += f" ({'; '.join(extras)})"
+        return f"{k['book_token']} — {k['name']} Kanda, {role}"
+    return "not inside any mapped kanda span (interstitial or unmapped)"
+
+
+def page_summary(record: dict, smap: dict | None, out_dir: Path) -> str:
+    """Human-readable answer to 'what does page X contain?' (board mode:
+    every page processed individually, inspectable individually)."""
+    page = record["page"]
+    d = record["derived"]
+    w_px, h_px = record["size_px"]
+    quality = []
+    st = record.get("image_stats") or {}
+    if st.get("blur_lapvar") is not None and st["blur_lapvar"] < BLUR_FLAG_THRESHOLD:
+        quality.append(f"BLUR (lapvar {st['blur_lapvar']:.1f})")
+    if st.get("skew_deg") is not None and abs(st["skew_deg"]) > SKEW_FLAG_DEG:
+        quality.append(f"ASKEW ({st['skew_deg']:+.2f} deg)")
+    mc = record["ocr"]["mean_word_conf"]
+    if mc is not None and mc < OCR_CONF_FLAG:
+        quality.append(f"LOW OCR CONF ({mc:.2f})")
+    if d["english_word_count"] < 5:
+        quality.append("no English text (plate/blank/title?)")
+
+    lines = [
+        f"page {page} — {record['file']} ({w_px}x{h_px} px)",
+        f"contains: {page_context(record, smap)}",
+    ]
+    if d["canto_heading"]:
+        lines.append(f"  canto heading line: {d['canto_heading']['text']!r}")
+    if d["canto_end"]:
+        lines.append(f"  canto colophon: {d['canto_end']!r}")
+    header = f"printed page {d['printed_page']}" if d["printed_page"] else "no printed page"
+    if d["header_kanda"]:
+        header += f"; header kanda token: {d['header_kanda']}"
+    lines.append(f"  {header}")
+    lines.append(f"  Devanagari block: {fmt_bbox_pct(d['devanagari_bbox'])} "
+                 f"({d['devanagari_word_count']} OCR tokens)")
+    lines.append(f"  English column:   {fmt_bbox_pct(d['english_bbox'])} "
+                 f"({d['english_word_count']} OCR tokens)")
+    lines.append(f"  verse numbers (en): {compact_runs(d['verse_numbers'])}")
+    conf_s = f"{mc:.2f}" if mc is not None else "n/a"
+    blur_s = f"{st['blur_lapvar']:.1f}" if st.get("blur_lapvar") is not None else "n/a"
+    skew_s = f"{st['skew_deg']:+.2f}" if st.get("skew_deg") is not None else "n/a"
+    qline = f"  quality: OCR mean conf {conf_s}, blur {blur_s}, skew {skew_s} deg"
+    if quality:
+        qline += "  [FLAGS: " + "; ".join(quality) + "]"
+    lines.append(qline)
+    rec_dir = out_dir / "pages"
+    fused = out_dir / "records" / f"page-{page:04d}.json"
+    recs = (f"records: {rec_dir / f'page-{page:04d}.layout.json'}, "
+            f"{rec_dir / f'page-{page:04d}.ocr.json'}")
+    if fused.is_file():
+        recs += f" (fused: {fused})"
+    lines.append("  " + recs)
+    return "\n".join(lines) + "\n"
+
+
 def parse_toc_entries(records: list[dict], raw_lines_by_page: dict[int, list[dict]]) -> list[dict]:
     """Extract printed-ToC entries "N. summary ... page" from OCR'd ToC pages.
 
@@ -880,6 +1002,11 @@ def main(argv=None) -> int:
     p_map = sub.add_parser("map", help="derive records + sarga-map/toc/fidelity")
     _common(p_map)
 
+    p_page = sub.add_parser(
+        "page", help="what does page N contain? (per-page mode, human-readable)")
+    p_page.add_argument("number", type=int)
+    p_page.add_argument("--out", type=Path, default=Path("build/structure"))
+
     p_all = sub.add_parser("all", help="pages then map")
     _common(p_all)
     p_all.add_argument("--workers", type=int, default=4)
@@ -887,6 +1014,21 @@ def main(argv=None) -> int:
     p_all.add_argument("--stage", choices=["layout", "ocr", "both"], default="both")
 
     args = ap.parse_args(argv)
+    if args.cmd == "page":
+        page = args.number
+        rec_dir = args.out / "pages"
+        lp = rec_dir / f"page-{page:04d}.layout.json"
+        op = rec_dir / f"page-{page:04d}.ocr.json"
+        if not (lp.is_file() and op.is_file()):
+            raise SystemExit(f"no structure records for page {page} under {rec_dir} "
+                             f"— run `just structure` first")
+        record = derive_record(page, json.loads(lp.read_text()),
+                               json.loads(op.read_text()))
+        smap_path = args.out / "sarga-map.json"
+        smap = json.loads(smap_path.read_text()) if smap_path.is_file() else None
+        print(page_summary(record, smap, args.out), end="")
+        return 0
+
     archive: Path = args.archive
     if not archive.is_dir():
         raise SystemExit(f"archive not found: {archive}")

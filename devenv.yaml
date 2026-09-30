@@ -1,0 +1,6 @@
+inputs:
+  # same nixpkgs rev as flake.lock so the structure env reuses the cached
+  # store paths (docling 2.118.0 + torch) instead of rebuilding them
+  nixpkgs:
+    url: github:NixOS/nixpkgs/b4fd65b198c599cbe814fcb9f42d25d021595ec9
+allowUnfree: true

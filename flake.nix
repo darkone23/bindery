@@ -48,33 +48,10 @@
             pkgs.just
           ];
         };
-        # M2 structure stage (HOL-255): docling layout + tesseract OCR.
-        # The unfree `saxonche` dependency and the impure model-download
-        # runtime are confined to THIS shell — no other flake output
-        # evaluates them.
-        structure =
-          let
-            pkgsU = import nixpkgs {
-              inherit (pkgs) system;
-              config.allowUnfreePredicate =
-                p: builtins.elem (p.pname or p.name or "") [ "saxonche" ];
-            };
-            structureEnv = pkgsU.python3.withPackages (ps: [
-              ps.docling-slim
-              ps.pillow
-              ps.numpy
-              ps.pytest
-            ] ++ ps.docling-slim.optional-dependencies.convert-core
-              ++ ps.docling-slim.optional-dependencies.format-pdf-docling
-              ++ ps.docling-slim.optional-dependencies.models-local);
-          in
-          pkgsU.mkShell {
-            packages = [
-              structureEnv
-              pkgsU.tesseract
-              pkgsU.just
-            ];
-          };
+        # M2 structure stage (HOL-255): docling layout + tesseract OCR run
+        # in the stage's devenv (devenv.nix / devenv.yaml, `devenv shell`) —
+        # the impure/unfree business lives there, not in this flake, which
+        # stays unfree-clean.
       });
 
       checks = forAll (

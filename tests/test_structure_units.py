@@ -285,3 +285,72 @@ def test_parse_toc_entries_multiline_and_filter():
     assert ("one", 2, 68) in got
     assert ("one", 3, 72) in got
     assert ("one", 4, 77) in got
+
+
+# --- page inspector (per-page mode, board ask) ----------------------------
+
+def test_compact_runs():
+    assert structure.compact_runs([]) == "-"
+    assert structure.compact_runs([42]) == "42"
+    assert structure.compact_runs([1, 2, 3, 5, 7, 8]) == "1-3, 5, 7-8"
+    assert structure.compact_runs([4, 4, 5]) == "4-5"  # robust to duplicates
+
+
+def test_fmt_bbox_pct():
+    assert structure.fmt_bbox_pct(None) == "none"
+    assert structure.fmt_bbox_pct([0.04, 0.075, 0.368, 0.921]) == \
+        "x 4.0-36.8%, y 7.5-92.1%"
+
+
+def make_smap_for_page_tests():
+    records = [
+        rec_for(1),
+        rec_for(2, canto_heading={"numeral": "I", "text": "Canto I", "t": 0.04},
+                title_book_token="one", kanda_title="bala"),
+        rec_for(3),
+        rec_for(4, canto_heading={"numeral": "II", "text": "Canto II", "t": 0.05}),
+        rec_for(5),
+    ]
+    return structure.build_sarga_map(records, 1, 5)
+
+
+def test_page_context_roles():
+    smap = make_smap_for_page_tests()
+    assert structure.page_context(rec_for(1), smap) == \
+        "interstitial (front matter / part division), pages 1-1"
+    assert structure.page_context(rec_for(2), smap) == \
+        "Book One — Bala Kanda, sarga 1 heading page (Canto I) (kanda opening)"
+    assert structure.page_context(rec_for(3), smap) == \
+        "Book One — Bala Kanda, sarga 1 body"
+    assert structure.page_context(rec_for(5), smap) == \
+        "Book One — Bala Kanda, sarga 2 body"
+    # without the map built yet
+    assert "sarga map not built yet" in structure.page_context(rec_for(3), None)
+
+
+def test_page_summary_plain_text():
+    smap = make_smap_for_page_tests()
+    rec = rec_for(4, canto_heading={"numeral": "II", "text": "Canto II", "t": 0.05},
+                  printed_page=4, verse_numbers=[1, 2, 3, 5, 7, 8])
+    rec["image_stats"] = {"blur_lapvar": 12.0, "skew_deg": 1.4}
+    rec["ocr"]["mean_word_conf"] = 0.4
+    rec["derived"]["english_bbox"] = [0.396, 0.075, 0.962, 0.923]
+    rec["derived"]["devanagari_bbox"] = [0.040, 0.075, 0.368, 0.921]
+    out = structure.page_summary(rec, smap, Path("/nowhere"))
+    assert out.startswith("page 4 — page-0004.png (1000x1500 px)")
+    assert "contains: Book One — Bala Kanda, sarga 2 heading page (Canto II)" in out
+    assert "printed page 4" in out
+    assert "Devanagari block: x 4.0-36.8%, y 7.5-92.1%" in out
+    assert "verse numbers (en): 1-3, 5, 7-8" in out
+    assert "FLAGS:" in out and "BLUR" in out and "ASKEW" in out and "LOW OCR CONF" in out
+    # fused record absent -> no fused note
+    assert "fused" not in out
+
+
+def test_page_summary_fused_note(tmp_path):
+    smap = make_smap_for_page_tests()
+    recs = tmp_path / "records"
+    recs.mkdir()
+    (recs / "page-0003.json").write_text("{}")
+    out = structure.page_summary(rec_for(3), smap, tmp_path)
+    assert "fused:" in out and "records/page-0003.json" in out
