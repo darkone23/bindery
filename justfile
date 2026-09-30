@@ -38,6 +38,13 @@ ingest:
 verify:
     nix develop -c bindery verify archive
 
+# push main to the sync-hub mirror on the paperclip VM (gitops HOL-254)
+push:
+    git push mirror main
+    # GitHub origin lands here once the repo exists (board confirmation
+    # pending on HOL-252):
+    # git push origin main
+
 # fetch the source PDF into dataset/ (public URL, no auth; run once)
 dataset-fetch:
     mkdir -p dataset
