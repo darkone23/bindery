@@ -354,3 +354,84 @@ def test_page_summary_fused_note(tmp_path):
     (recs / "page-0003.json").write_text("{}")
     out = structure.page_summary(rec_for(3), smap, tmp_path)
     assert "fused:" in out and "records/page-0003.json" in out
+
+
+def test_sarga_map_stray_untitled_canto_one():
+    # full-corpus failure (HOL-255): a low-confidence "Canto I" line
+    # mid-kanda (misread colophon page) must not start a phantom kanda
+    records = [
+        rec_for(1),
+        rec_for(2, canto_heading={"numeral": "I", "text": "Canto I", "t": 0.04},
+                title_book_token="one", kanda_title="bala"),
+        rec_for(3),
+        rec_for(4, canto_heading={"numeral": "I", "text": "Canto I", "t": 0.04}),
+        rec_for(5, canto_heading={"numeral": "II", "text": "Canto II", "t": 0.05}),
+        rec_for(6, canto_heading={"numeral": "I", "text": "Canto I", "t": 0.04},
+                title_book_token="two", kanda_title="ayodhya"),
+        rec_for(7),
+    ]
+    smap = structure.build_sarga_map(records, 1, 7)
+    assert [k["kanda"] for k in smap["kandas"]] == [1, 2]
+    k1 = smap["kandas"][0]
+    assert [s["sarga"] for s in k1["sargas"]] == [1, 2]
+    assert (k1["sargas"][0]["start_page"], k1["sargas"][0]["end_page"]) == (2, 4)
+    kinds = [f["kind"] for f in smap["flags"]]
+    assert "untitled_canto_one" in kinds
+    # stray page stays inside kanda 1, not interstitial
+    assert smap["interstitial_blocks"] == [{"start_page": 1, "end_page": 1}]
+
+
+def test_sarga_map_numeral_omission_gap():
+    # corpus bk7 page 2168: print itself says 'Canto LVI' where XLVI (46)
+    # belongs — a dropped glyph; boundary must land on 46, not jump to 56
+    records = [
+        rec_for(1, canto_heading={"numeral": "I", "text": "Canto I", "t": 0.04},
+                title_book_token="seven", kanda_title="uttara"),
+        rec_for(2, canto_heading={"numeral": "XXXXV", "text": "Canto XXXXV", "t": 0.04}),
+        rec_for(3, canto_heading={"numeral": "LVI", "text": "Canto LVI", "t": 0.04}),
+        rec_for(4, canto_heading={"numeral": "XXXXVII", "text": "Canto XXXXVII", "t": 0.04}),
+    ]
+    smap = structure.build_sarga_map(records, 1, 4)
+    k = smap["kandas"][0]
+    assert [s["sarga"] for s in k["sargas"]] == [1, 45, 46, 47]
+    assert k["sarga_count"] == 4
+    s46 = next(s for s in k["sargas"] if s["sarga"] == 46)
+    assert s46["printed_numeral"] == "LVI"
+    assert s46["flags"] == ["numeral_omission"]
+    kinds = [f["kind"] for f in k["flags"]]
+    assert "numeral_omission" in kinds
+    # the synthetic pre-gap (1 -> 45) is still flagged, but 46 is not skipped
+    assert "sequence_gap" in kinds
+
+
+def test_parse_toc_entries_real_format():
+    # real ToC pages (HOL-255 corpus): standalone hanging number lines,
+    # junk dot leaders, mojibake number lines; title header ('Book One')
+    # must NOT disqualify the page
+    records = [rec_for(21), rec_for(22)]
+    lines = {
+        21: [
+            {"t": 100, "text": "The Valmiki-Ramayana", "conf": 90},
+            {"t": 110, "text": "Balakanda", "conf": 90},
+            {"t": 120, "text": "Book One", "conf": 91},
+            {"t": 130, "text": "1. The celestial sage Narada narrates to Valmiki the Story of", "conf": 89},
+            {"t": 140, "text": "SH RAMA N 8 NUESNEIL. 1ottt ettt e et e et et e et e e e ereeeee e 59", "conf": 19},
+            {"t": 150, "text": "2. Brahma's VISIt. ... e 68", "conf": 35},
+            {"t": 160, "text": "3. A brief outline of the Ramayana. ......................... 72", "conf": 90},
+        ],
+        22: [
+            {"t": 100, "text": "(22)", "conf": 90},
+            {"t": 110, "text": "18.", "conf": 92},
+            {"t": 120, "text": "AITIVAL OF VIS WM A, .o e e e e 120", "conf": 27},
+            {"t": 130, "text": "406.", "conf": 44},
+            {"t": 140, "text": "of austerities at Kusaplava with the permission of her husband", "conf": 92},
+            {"t": 150, "text": "1021 110 1< 7 199", "conf": 46},
+        ],
+    }
+    entries = structure.parse_toc_entries(records, lines)
+    got = {(e["book"], e["canto"], e["printed_page"]) for e in entries}
+    assert ("one", 1, 59) in got
+    assert ("one", 2, 68) in got
+    assert ("one", 3, 72) in got
+    assert ("one", 18, 120) in got
+    assert all(e["canto"] <= 200 for e in entries)  # '406.' mojibake guarded

@@ -55,6 +55,10 @@ EXPECTED_SARGA_COUNTS = {1: 77, 2: 119, 3: 75, 4: 67, 5: 68, 6: 128, 7: 111}
 
 ROMAN_VALUES = [("C", 100), ("L", 50), ("X", 10), ("V", 5), ("I", 1)]
 ROMAN_MAP = dict(ROMAN_VALUES)
+ROMAN_VALUES_SUBTRACTIVE = [
+    ("C", 100), ("XC", 90), ("L", 50), ("XL", 40),
+    ("X", 10), ("IX", 9), ("V", 5), ("IV", 4), ("I", 1),
+]
 CANTO_HEADING_RE = re.compile(r"^cant[o0]\s*\.?\s*([ivxlc|l10]+)[.,]?\s*$", re.IGNORECASE)
 CANTO_END_RE = re.compile(r"thus\s+ends\s+canto\s+", re.IGNORECASE)
 KANDA_END_RE = re.compile(r"end\s+of\s+[a-z]*kand", re.IGNORECASE)
@@ -64,8 +68,28 @@ VERSE_NUM_RE = re.compile(r"^\((\d{1,3})\)$")
 HEADER_KANDA_RE = re.compile(
     r"\b(BALA|AYODHYA|ARANYA|KISHKINDH|SUNDARA|YUDDHA|UTTARA)")
 HEADER_VALMIKI_RE = re.compile(r"VALMIKI", re.IGNORECASE)
-TOC_ENTRY_NUM_RE = re.compile(r"^\s{0,8}(\d{1,3})\.\s")
-TOC_PAGE_REF_RE = re.compile(r"[.\s·…]{3,}\s*(\d{1,4})\s*$")
+TOC_ENTRY_NUM_RE = re.compile(r"^\s{0,8}(\d{1,3})\.(?:\s|$)")
+TOC_PAGE_REF_RE = re.compile(r"^(.*?)[\s.·…]{0,3}(\d{1,4})\s*$")
+
+
+def toc_page_ref(txt: str) -> int | None:
+    """Trailing printed-page ref of a ToC entry line, or None.
+
+    The dot leaders OCR as junk — pure dots ('... 72'), dotted-letter
+    mush ('.....c....ccoo 77') or outright letter soup ('1ottt ettt e
+    ... ereeeee e 59') — so the rule is: line ends in a number with a
+    real leader-ish tail before it (dotted run or >=6 junk chars).
+    """
+    m = TOC_PAGE_REF_RE.match(txt.strip())
+    if not m:
+        return None
+    prefix, num = m.group(1), int(m.group(2))
+    tail = prefix[-14:]
+    dotted = "..." in txt or re.search(r"[.\s·…]{3,}", tail) is not None
+    long_junk = len(prefix.strip()) >= 6
+    if not (dotted or long_junk):
+        return None
+    return num
 
 ENGLISH_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
                     " ,.;:!?'\"()[]-–—&/")
@@ -85,8 +109,10 @@ def roman_to_int(s: str) -> int:
 
 
 def int_to_roman(n: int) -> str:
+    """Subtractive canonical form (IV, IX, XL, XC...) — matches how this
+    edition actually prints its canto numerals (Canto XLIX, XLV...)."""
     out = []
-    for sym, val in ROMAN_VALUES:
+    for sym, val in ROMAN_VALUES_SUBTRACTIVE:
         while n >= val:
             out.append(sym)
             n -= val
@@ -95,6 +121,13 @@ def int_to_roman(n: int) -> str:
 
 def roman_multiset(s: str) -> str:
     return "".join(sorted(s.upper()))
+
+
+def _char_counts(s: str) -> dict:
+    counts: dict = {}
+    for c in s.upper():
+        counts[c] = counts.get(c, 0) + 1
+    return counts
 
 
 def normalize_canto_numeral(tok: str) -> str:
@@ -350,19 +383,39 @@ def build_sarga_map(records: list[dict], first_page: int, last_page: int) -> dic
     edition prints one, else the page before the next kanda's start.
     """
     headings = []  # (page, numeral_str, value)
+    title_pages: set[int] = set()
+    untitled_canto_one: list[dict] = []
     for r in records:
         ch = r["derived"]["canto_heading"]
         if ch:
             headings.append((r["page"], ch["numeral"], roman_to_int(ch["numeral"])))
+        d = r["derived"]
+        if d["title_book_token"] or d["kanda_title"]:
+            title_pages.add(r["page"])
     headings.sort()
 
-    kanda_starts = [pg for pg, num, val in headings if val == 1]
+    # Kanda starts are "Canto I" headings WITH a printed kanda title token
+    # on the page ("[Book N]" / "(<name>kanda)"). Every kanda of this
+    # edition opens titled, while stray low-confidence "Canto I" lines
+    # (e.g. a misread "Canto II" colophon page) carry no title token —
+    # those stay inside the running kanda and are flagged, so the kanda
+    # count can never overflow.
+    kanda_starts = [pg for pg, num, val in headings
+                    if val == 1 and pg in title_pages]
+    titled_starts = set(kanda_starts)
     notes = []
     if not kanda_starts:
-        notes.append("no Canto I heading found — partial slice?")
+        notes.append("no titled Canto I heading found — partial slice?")
+    for pg, num, val in headings:
+        if val == 1 and pg not in titled_starts:
+            untitled_canto_one.append({"page": pg, "kind": "untitled_canto_one",
+                                       "detail": "'Canto I' heading without a kanda "
+                                                 "title token; treated as a stray "
+                                                 "heading inside the running kanda, "
+                                                 "not a kanda start"})
 
     kandas = []
-    all_flags = []
+    all_flags = list(untitled_canto_one)
     used_knos = set()
     for idx, start in enumerate(kanda_starts):
         next_start = kanda_starts[idx + 1] if idx + 1 < len(kanda_starts) else None
@@ -391,8 +444,19 @@ def build_sarga_map(records: list[dict], first_page: int, last_page: int) -> dic
                 break
         if kno is None or kno in used_knos:
             kno = idx + 1
+        kpair = next(((name, book) for n, name, book in KANDAS if n == kno), None)
+        if kpair is None:
+            # more titled kanda spans than KANDAS: record the span, keep
+            # it out of the map (its pages fall into the interstitial set)
+            notes.append(f"kanda span starting at page {start} identified as "
+                         f"#{kno}, beyond the {len(KANDAS)} known kandas — "
+                         "left unmapped (see flags)")
+            all_flags.append({"page": start, "kind": "kanda_count_overflow",
+                              "detail": f"titled kanda span #{kno} exceeds the "
+                                        f"{len(KANDAS)} known kandas"})
+            continue
+        kname, kbook = kpair
         used_knos.add(kno)
-        kname, kbook = next((name, book) for n, name, book in KANDAS if n == kno)
 
         kheadings = [(pg, num, val) for pg, num, val in headings if start <= pg <= end]
         sargas = []
@@ -423,6 +487,21 @@ def build_sarga_map(records: list[dict], first_page: int, last_page: int) -> dic
             elif val < expected:
                 continue  # stray repeat of an earlier heading
             else:
+                exp_roman = int_to_roman(expected)
+                c_exp, c_num = _char_counts(exp_roman), _char_counts(num)
+                if (len(num) == len(exp_roman) - 1
+                        and all(c_exp.get(c, 0) >= n for c, n in c_num.items())):
+                    # printed numeral lost one glyph (corpus: bk7 page 2168
+                    # prints 'Canto LVI' where XLVI belongs — XLVII follows)
+                    flags_k.append({"page": pg, "kind": "numeral_omission",
+                                    "detail": f"printed '{num}' where {exp_roman} "
+                                              "belongs (dropped glyph in the print)"})
+                    sargas.append({"sarga": expected, "start_page": pg,
+                                  "end_page": None, "heading_page": pg,
+                                  "printed_numeral": num,
+                                  "flags": ["numeral_omission"]})
+                    expected += 1
+                    continue
                 flags_k.append({"page": pg, "kind": "sequence_gap",
                                 "detail": f"heading {num} found while expecting "
                                           f"{int_to_roman(expected)}"})
@@ -677,7 +756,11 @@ def parse_toc_entries(records: list[dict], raw_lines_by_page: dict[int, list[dic
     for r in sorted(records, key=lambda r: r["page"]):
         p = r["page"]
         d = r["derived"]
-        is_body = bool(d["canto_heading"] or d["title_book_token"] or d["kanda_title"])
+        # Only canto-heading pages are excluded: they are body pages whose
+        # dotted verse lines would read as refs. Kanda-title pages are NOT
+        # excluded — the printed ToC pages carry exactly those headers
+        # ('Balakanda / Book One' above the entry list).
+        is_body = bool(d["canto_heading"])
         entries = []
         open_num = None
         for ln in raw_lines_by_page.get(p, []):
@@ -686,10 +769,12 @@ def parse_toc_entries(records: list[dict], raw_lines_by_page: dict[int, list[dic
                 continue
             mnum = TOC_ENTRY_NUM_RE.match(txt)
             if mnum:
-                open_num = int(mnum.group(1))
-            mref = TOC_PAGE_REF_RE.search(txt)
-            if mref and open_num is not None:
-                entries.append({"canto": open_num, "printed_page": int(mref.group(1))})
+                n = int(mnum.group(1))
+                # mojibake number lines (e.g. '406.' for 46) must not leak
+                open_num = n if n <= 200 else None
+            ref = toc_page_ref(txt)
+            if ref is not None and open_num is not None:
+                entries.append({"canto": open_num, "printed_page": ref})
                 open_num = None
         per_page.append((p, entries, is_body))
     final = []
