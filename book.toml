@@ -1,0 +1,33 @@
+# bindery book profile — M1 proof slice (HOL-253)
+# Design: HOL-250 plan rev 1. Everything downstream of ingest is driven
+# from this file; margins are in points (1 pt = 1/72 in).
+
+[book]
+title = "Valmiki-Ramayana (Gita Press) — M1 proof slice"
+
+[source]
+# HOL-251 ingest dataset (3.4 GB, gitignored; moves to TrueNAS per plan §4).
+archive = "/home/orpheus/src/bindery/archive"
+
+[order]
+# M1: any contiguous 20-page slice; 400-419 is a vector-text body run.
+slice = { first = 400, last = 419 }
+
+[trim]
+# Margins cropped from the source page edges, in pt (y from the top).
+# Defaults keep the whole source page, so the trim ratio matches the
+# source (444 x 667.44 pt). The inside (spine-side) margin additionally
+# grows by inside_growth_per_sheet_pt per sheet depth in its signature.
+inside_pt = 0.0
+outside_pt = 0.0
+top_pt = 0.0
+bottom_pt = 0.0
+inside_growth_per_sheet_pt = 0.0
+
+[impose]
+paper = "letter"          # US Letter portrait, horizontal fold (M1: letter only)
+signature_pages = 8       # 20 pages -> signatures 8+8+4 = 5 duplex sheets
+slot_margin_pt = 14.0     # page-to-sheet-edge margin that hosts the marks
+caliper_mm = 0.10         # paper thickness; creep = 2 x caliper per enclosing sheet
+marks = true              # crop marks, fold marks, registration block, labels
+proof_dpi = 150           # raster downsample for proof-screen.pdf

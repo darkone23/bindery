@@ -1,5 +1,5 @@
 {
-  description = "bindery — book-reprint toolkit (HOL-250 / HOL-251, M0 ingest)";
+  description = "bindery — book-reprint toolkit (M0 ingest, M1 trim+impose)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -17,12 +17,15 @@
         pkgs:
         let
           binderyBin = pkgs.writers.writePython3Bin "bindery"
-            { flakeIgnore = [ "E501" "E265" ]; } ./bindery.py;
+            {
+              flakeIgnore = [ "E501" "E265" ];
+              libraries = ps: [ ps.reportlab ps.pillow ];
+            } ./bindery.py;
         in
         rec {
           default = bindery;
           bindery = pkgs.symlinkJoin {
-            name = "bindery-0.1.0";
+            name = "bindery-0.2.0";
             paths = [ binderyBin ];
             nativeBuildInputs = [ pkgs.makeWrapper ];
             postBuild = ''
@@ -36,7 +39,11 @@
         default = pkgs.mkShell {
           packages = [
             self.packages.${pkgs.system}.default
-            (pkgs.python3.withPackages (ps: [ ps.pytest ]))
+            (pkgs.python3.withPackages (ps: [
+              ps.pytest
+              ps.reportlab
+              ps.pillow
+            ]))
             pkgs.poppler-utils
             pkgs.just
           ];
@@ -46,7 +53,11 @@
       checks = forAll (
         pkgs:
         let
-          pytestEnv = pkgs.python3.withPackages (ps: [ ps.pytest ]);
+          pytestEnv = pkgs.python3.withPackages (ps: [
+            ps.pytest
+            ps.reportlab
+            ps.pillow
+          ]);
         in
         {
           default = pkgs.runCommand "bindery-pytest"

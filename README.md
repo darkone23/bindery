@@ -13,8 +13,13 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   archival raster (PNG) under `archive/` plus a `manifest.json` sidecar
   (source URL + checksum, render dpi, sha256 per page). Originals are never
   mutated.
-- Next: M1 20-page physical proof, M2 structure mining (docling), M3+ assembly /
-  trim / imposition (see the plan).
+- **M1 — 20-page physical proof** (HOL-253): `just proof` takes archive pages
+  400–419 through assemble → trim → impose and emits `build/press.pdf`
+  (5 duplex Letter sheets: signatures 8+8+4, long-edge flip, creep
+  compensation, crop/fold marks, registration block) plus
+  `build/proof-screen.pdf` (reading-order screen proof). See `PRINTING.md`.
+- Next: M2 structure mining (docling), M3 full volume + apparatus leaves,
+  M4 splice of Tommy's scans (see the plan).
 
 ## Interface
 
@@ -22,10 +27,14 @@ Everything goes through `just` recipes:
 
 ```sh
 just build            # nix build (packages.default = bindery CLI)
-just ingest-fixture   # pytest suite on a tiny committed fixture PDF
+just ingest-fixture   # pytest suite (ingest fixture + M1 trim/impose fixture)
 just dataset-fetch    # fetch the Ramayana PDF into gitignored dataset/
 just ingest           # 600 dpi render of dataset/ PDF into archive/ + manifest
 just verify           # recheck archive/ against its manifest
+just assemble         # book.toml slice -> build/order.json (manifest-validated)
+just trim             # crop to the trim profile -> build/trim/ + trim.json
+just impose           # duplex Letter imposition -> build/press.pdf + proof
+just proof            # the full M1 chain
 ```
 
 ## Layout
