@@ -35,13 +35,29 @@ matching the issue example. Confirm the name with the board if the
 family should differ.
 
 From the laptop, in the chipnet repo (the sanctioned NAS escape hatch;
-plain `zfs create` — no destructive ops, idempotence-check first):
+plain `zfs create` — no destructive ops, idempotence-check first). The
+`nas` recipe substitutes its argument **textually**, so run each zfs op
+as its own invocation — `&&` inside the quoted command is eaten by the
+*local* shell, not the NAS (verified 2026-10-01):
 
 ```bash
-just infra nas "zfs list -H -o name flash/household 2>/dev/null || echo ABSENT"
-just infra nas "zfs create -o quota=64G flash/household/bindery && zfs create flash/household/bindery/m3"
-just infra nas "chown -R orpheus /mnt/flash/household/bindery && zfs list -o name,used,quota flash/household/bindery"
+just infra nas "zfs list -H -o name flash/household"
+just infra nas "zfs create -o quota=64G flash/household/bindery"
+just infra nas "zfs create flash/household/bindery/m3"
+just infra nas "chown -R orpheus /mnt/flash/household/bindery"
+just infra nas "zfs list -o name,used,quota flash/household/bindery"
 ```
+
+Two laptop-side gotchas hit on the first real run (2026-10-01):
+
+- `truenas.local` did not resolve on the laptop — pass the LAN IP
+  explicitly: `HOMEINFRA_NAS_HOST=192.168.8.220 just infra nas …`
+  (and likewise `just storage-sync "orpheus@192.168.8.220:/mnt/…"`,
+  since the recipe default embeds the host too).
+- secretspec enforces `--reason` for agent sessions; a failing run can
+  masquerade as empty NAS output (e.g. an `|| echo ABSENT` pre-check
+  firing on the *policy* error, not the NAS answer). Trust output only
+  from a run that carried its reason.
 
 (GUI alternative: Datasets → Add, pool `flash`, name `household/bindery`,
 quota 64G; then Add `m3` child. Ownership fix still needs the shell.)
