@@ -437,6 +437,8 @@ def enhance(book: dict, archive: Path, out_dir: Path,
         if passthrough:
             # near-no-op page: link the original bytes (disk-neutral; the
             # manifest records the pass-through with the source sha256)
+            if dest.exists() or dest.is_symlink():
+                dest.unlink()  # build/ is disposable; the stage owns it
             try:
                 os.link(src, dest)
             except OSError:
