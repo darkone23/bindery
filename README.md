@@ -33,6 +33,13 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   typeset at trim geometry), `[order] full` (the complete-volume order from
   the sarga map, apparatus leaves inserted first), and 16-page-signature
   imposition: `just impose --full` / `just full`.
+- **M3 board rev — targeted supplement**: the board narrowed the deliverable
+  to the pages actually missing from the 1970s edition: `book.toml` is the
+  supplement profile — `[order] sarga_range` (ToC + Uttara-kanda sargas
+  42–111, archive pages 2159–2303), `apparatus_kinds = ["toc"]` (the
+  supplement renders the ToC only; preface/errata stay one config flip
+  away). `just supplement` / `just impose --full` builds it. The
+  full-volume profile remains available in code (full mode).
 - Next: M4 splice of Tommy's scans
   (see the plan).
 
@@ -51,7 +58,7 @@ just page N           # "what does page N contain?" from the per-page records
 just structure-fixture # pytest for the structure stage (pure units + 7-page slice)
 just enhance          # M3: profile-driven per-page ops -> build/enhance/
 just apparatus        # M3: preface/ToC/errata leaves -> build/apparatus/
-just full             # M3 full chain: enhance -> assemble -> trim -> impose
+just supplement       # M3 chain (board rev): enhance -> apparatus -> assemble -> trim -> impose
 just assemble         # book.toml slice -> build/order.json (manifest-validated)
 just trim             # crop to the trim profile -> build/trim/ + trim.json
 just impose           # duplex Letter imposition -> build/press.pdf + proof
@@ -80,3 +87,8 @@ just proof            # the full M1 chain
 
 - Deps from nixpkgs only. No secrets. Sources are public domain / public URL.
 - Just recipes are the only interface; nothing is hand-done twice.
+- GitHub pushes to this repo (darkone23/bindery) run through
+  `GITHUB_DARKONE23_ADMIN_PAT` via the repo-local env-reading credential
+  helper (`git config --local --get 'credential.https://github.com/darkone23.helper'`);
+  the org-wide chipnet helper is scoped to holycharisma repos only
+  (chipnet branch `fix/gh-credential-org-scope`).
