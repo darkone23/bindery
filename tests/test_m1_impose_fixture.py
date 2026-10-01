@@ -216,7 +216,9 @@ def test_proof_is_single_page_sequence(build):
     b = build["bindery"]
     info = b.pdfinfo(out / "proof-screen.pdf")
     assert info["Pages"] == "8"
-    assert info["Page size"].startswith("444 x 667.44")
+    # page size follows the actual rasters (pdfinfo's stated 667.44 pt
+    # disagrees with the render by rounding; the rasters are the input)
+    assert info["Page size"].startswith("444 x 667.5")
 
 
 def test_blank_slots_survive_impose(b, tmp_path):

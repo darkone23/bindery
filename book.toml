@@ -1,17 +1,32 @@
-# bindery book profile — M1 proof slice (HOL-253)
+# bindery book profile — M3 targeted supplement (HOL-256, board rev)
 # Design: HOL-250 plan rev 1. Everything downstream of ingest is driven
 # from this file; margins are in points (1 pt = 1/72 in).
 
 [book]
-title = "Valmiki-Ramayana (Gita Press) — M1 proof slice"
+title = "Valmiki-Ramayana (Gita Press) — Uttara supplement (source B)"
 
 [source]
 # HOL-251 ingest dataset (3.4 GB, gitignored; moves to TrueNAS per plan §4).
 archive = "/home/orpheus/src/bindery/archive"
 
 [order]
-# M1: any contiguous 20-page slice; 400-419 is a vector-text body run.
-slice = { first = 400, last = 419 }
+# Board rev: targeted supplement, not the full volume — the ToC plus
+# Uttara-kanda sargas 42-111 (archive pages 2159-2303), the portion
+# missing from the 1970s edition this supplements. The range expands
+# from the sarga map (kandas must tile their span contiguously).
+sarga_range = { kanda = 7, first = 42, last = 111 }
+sarga_map = "build/structure/sarga-map.json"
+apparatus = "build/apparatus/manifest.json"
+# Targeted supplement renders the ToC only (preface/errata remain
+# available for a full-volume profile).
+apparatus_kinds = ["toc"]
+
+[order.printed_numbering]
+# Printed numbering of the source volume: Part One pages carry their own
+# printed number; Part Two restarts at archive page 1169 (printed =
+# archive - 1167). Quoted on the apparatus ToC leaves.
+part2_start_archive = 1169
+part2_offset = 1167
 
 [trim]
 # Margins cropped from the source page edges, in pt (y from the top).
@@ -24,9 +39,22 @@ top_pt = 0.0
 bottom_pt = 0.0
 inside_growth_per_sheet_pt = 0.0
 
+[enhance]
+# Profile-driven per-page ops; expected near-no-op on the clean vector
+# body (every body page is already full-range; border_pt stays 0).
+# Per-page ops + diffs are recorded in build/enhance/manifest.json.
+[enhance.border_pt]
+left = 0.0
+right = 0.0
+top = 0.0
+bottom = 0.0
+[enhance.levels]
+black_pct = 0.5
+white_pct = 99.5
+
 [impose]
 paper = "letter"          # US Letter portrait, horizontal fold (M1: letter only)
-signature_pages = 8       # 20 pages -> signatures 8+8+4 = 5 duplex sheets
+signature_pages = 16      # 145 supplement pages + ToC leaves -> ~10 signatures
 slot_margin_pt = 14.0     # page-to-sheet-edge margin that hosts the marks
 caliper_mm = 0.10         # paper thickness; creep = 2 x caliper per enclosing sheet
 marks = true              # crop marks, fold marks, registration block, labels

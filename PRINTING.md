@@ -70,3 +70,41 @@ just proof     # assemble -> trim -> impose: build/press.pdf + proof-screen.pdf
 
 `build/proof-screen.pdf` is the same 20 pages in reading order for
 on-screen checking; `build/press.pdf` is the print file.
+---
+
+# M3 full-volume proof (HOL-256)
+
+`just impose --full` (or `just full`) runs the complete chain on **all
+2303 archive pages + the apparatus leaves**:
+
+```sh
+just full          # enhance -> apparatus -> assemble -> trim -> impose
+```
+
+Outputs (build/):
+
+| Artifact | What it is |
+|---|---|
+| `enhance/` | profile-ops result; originals untouched, per-page diffs in its manifest |
+| `apparatus/` | preface + ToC + errata leaves, typeset at trim geometry |
+| `order.json` | the full-volume sequence: apparatus first, then archive 1–2303 |
+| `trim/` | trimmed pages (uncropped body pages pass through untouched) |
+| `press.pdf` | 16-page signatures, duplex Letter, ~580 sheets — the print file |
+| `proof-screen.pdf` | the same pages in reading order for on-screen proofing |
+
+## Trim profile (documented default)
+
+The source page of source B is 444 x 667.44 pt; the default trim profile
+keeps it whole and scales it to Letter with working margins. The board's
+trim-size confirmation remains open — it can override this profile in
+`book.toml` before any physical run.
+
+## What is different from the M1 proof
+
+- **16-page signatures** (4 nested sheets each) instead of 8.
+- **Apparatus leaves in front** (positions 1–N): preface, ToC (sarga
+  rows from the structure map, with the Part-Two printed-numbering
+  offset note), errata (print quirks recorded, not corrected). Positions
+  N+1…N+2303 are archive pages 1–2303 in order.
+- Near-no-op **enhance** pass sits in front of assemble; its manifest
+  records every per-page op and diff.

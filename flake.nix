@@ -29,7 +29,8 @@
             paths = [ binderyBin ];
             nativeBuildInputs = [ pkgs.makeWrapper ];
             postBuild = ''
-              wrapProgram $out/bin/bindery --prefix PATH : ${pkgs.poppler-utils}/bin
+              wrapProgram $out/bin/bindery --prefix PATH : ${pkgs.poppler-utils}/bin \
+                --set BINDERY_FONT_DIR ${pkgs.dejavu_fonts}/share/fonts/truetype
             '';
           };
         }
@@ -46,8 +47,17 @@
             ]))
             pkgs.poppler-utils
             pkgs.just
+            pkgs.dejavu_fonts
           ];
+          # apparatus-leaf fonts (HOL-256 M3)
+          shellHook = ''
+            export BINDERY_FONT_DIR=${pkgs.dejavu_fonts}/share/fonts/truetype
+          '';
         };
+        # M2 structure stage (HOL-255): docling layout + tesseract OCR run
+        # in the stage's devenv (devenv.nix / devenv.yaml, `devenv shell`) —
+        # the impure/unfree business lives there, not in this flake, which
+        # stays unfree-clean.
       });
 
       checks = forAll (
@@ -62,9 +72,14 @@
         {
           default = pkgs.runCommand "bindery-pytest"
             {
-              nativeBuildInputs = [ pytestEnv pkgs.poppler-utils ];
+              nativeBuildInputs = [
+                pytestEnv
+                pkgs.poppler-utils
+                pkgs.dejavu_fonts
+              ];
             }
             ''
+              export BINDERY_FONT_DIR=${pkgs.dejavu_fonts}/share/fonts/truetype
               cp -r ${self} src
               chmod -R u+w src
               cd src
