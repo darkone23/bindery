@@ -57,6 +57,10 @@ git clone https://github.com/darkone23/bindery && cd bindery   # or fetch
 just storage-sync        # two-hop: VM staging -> laptop scratch -> NAS
 ```
 
+Until this commit is on GitHub `main` (push from the paperclip VM needs
+`darkone23/bindery` PAT scope — board action), clone the sync-hub copy:
+`git clone orpheus@paperclip.elf-lizard.ts.net:git-mirrors/bindery.git`.
+
 `storage-sync` rsyncs `-aH` (hardlinks preserved) and removes its laptop
 scratch afterwards. Re-runs are idempotent (mtime+size shortcutting).
 
