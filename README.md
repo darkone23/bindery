@@ -53,6 +53,7 @@ just ingest-fixture   # pytest suite (ingest fixture + M1 trim/impose fixture)
 just dataset-fetch    # fetch the Ramayana PDF into gitignored dataset/
 just ingest           # 600 dpi render of dataset/ PDF into archive/ + manifest
 just verify           # recheck archive/ against its manifest
+just sample-qa DIR/   # M4 gate: profile-check sample scans -> build/sample-qa/
 just structure        # M2: docling layout + tesseract OCR -> sarga map/ToC/fidelity
 just page N           # "what does page N contain?" from the per-page records
 just structure-fixture # pytest for the structure stage (pure units + 7-page slice)

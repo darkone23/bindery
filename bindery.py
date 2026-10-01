@@ -1289,8 +1289,31 @@ def impose(book: dict, out_dir: Path) -> dict:
     return meta
 
 
-def verify(out_dir: Path) -> int:
-    """Check an archive against its manifest; exit 0 if consistent."""
+def spot_indices(total: int, count: int) -> list[int]:
+    """Deterministic evenly spaced 1-indexed page sample incl. first and last."""
+    count = max(1, min(count, total))
+    if count == 1:
+        return [1]
+    return sorted({1 + round(i * (total - 1) / (count - 1)) for i in range(count)})
+
+
+def parse_page_list(spec: str) -> list[int]:
+    """Parse "1,2,300" into a sorted unique list of 1-indexed page numbers."""
+    pages = sorted({int(x) for x in spec.split(",") if x.strip()})
+    if not pages or pages[0] < 1:
+        raise SystemExit("--pages: need comma-separated 1-indexed page numbers")
+    return pages
+
+
+def verify(out_dir: Path, spot: int | None = None,
+           pages: list[int] | None = None) -> int:
+    """Check an archive against its manifest; exit 0 if consistent.
+
+    Default: every page. `spot=N` checks a deterministic evenly spaced
+    sample of N pages (first and last always included); `pages=1,2,300`
+    checks exactly those 1-indexed pages. Spot/pages mode prints one
+    line per checked page — the compare table for storage syncs (HOL-258).
+    """
     mpath = out_dir / "manifest.json"
     manifest = json.loads(mpath.read_text())
     total = manifest["source"]["pages"]
@@ -1300,24 +1323,191 @@ def verify(out_dir: Path) -> int:
         lo = int(span[0]) if span[0] else 1
         hi = int(span[1]) if span[1] else total
         total = hi - lo + 1
-    pages = manifest["pages"]
+    all_pages = manifest["pages"]
     bad = 0
-    if len(pages) != total:
-        print(f"MISMATCH: manifest lists {len(pages)} pages, source has {total}")
+    if len(all_pages) != total:
+        print(f"MISMATCH: manifest lists {len(all_pages)} pages, source has {total}")
         bad += 1
-    for entry in pages:
+    by_page = {e["page"]: e for e in all_pages}
+    if pages is not None:
+        unknown = [n for n in pages if n not in by_page]
+        if unknown:
+            raise SystemExit(f"--pages: manifest has no page(s) {unknown} (1..{total})")
+        selected = pages
+    elif spot is not None:
+        selected = spot_indices(total, spot)
+    else:
+        selected = [e["page"] for e in all_pages]
+    listed = spot is not None or pages is not None
+    for n in selected:
+        entry = by_page[n]
         p = out_dir / entry["file"]
         if not p.is_file():
             print(f"MISSING: {p}")
             bad += 1
             continue
+        if p.stat().st_size != entry["size_bytes"]:
+            print(f"SIZE MISMATCH: {p}")
+            bad += 1
         if sha256_file(p) != entry["sha256"]:
             print(f"HASH MISMATCH: {p}")
             bad += 1
+        elif listed:
+            print(f"OK {n} {entry['file']} {entry['sha256']} {entry['size_bytes']}B")
+    mode = (f"spot({len(selected)})" if spot is not None
+            else f"pages({len(selected)})" if pages is not None
+            else "full")
     status = "OK" if bad == 0 else f"FAILED ({bad} problems)"
-    print(f"verify {out_dir}: {status} — {len(pages)}/{total} pages, "
+    print(f"verify {out_dir} [{mode}]: {status} — {len(all_pages)}/{total} pages, "
           f"dpi={manifest['render']['dpi']}")
     return 0 if bad == 0 else 1
+
+
+SAMPLEQA_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+
+# Source B (Gita Press PDF) page geometry, pt — the raster-derived trim
+# reference the 1970s edition's measured trim is compared against.
+SOURCE_B_PT = (444.0, 667.44)
+
+
+def sample_qa(scan_dir: Path, out: Path, expected_dpi: int = 600) -> int:
+    """M4 gate: profile-check sample scans before full-book ingest (HOL-259).
+
+    Inspects every image in `scan_dir` (sorted by name): pixel size, dpi
+    metadata, physical page size in pt at the detected dpi, tonal range
+    and near-gray check, then flags WARN-level findings (missing/low dpi,
+    flat exposure, mixed page sizes) and writes report.json + report.md
+    under `out` / "sample-qa". Returns 0 when no WARN finding, else 1 —
+    a clean report is the board's green light to scan the whole book.
+    """
+    from PIL import Image, ImageChops
+
+    files = sorted(p for p in scan_dir.iterdir()
+                   if p.is_file() and p.suffix.lower() in SAMPLEQA_SUFFIXES)
+    if not files:
+        print(f"sample-qa: no scan images in {scan_dir} "
+              f"(looking for {', '.join(sorted(SAMPLEQA_SUFFIXES))})")
+        return 1
+    out_dir = out / "sample-qa"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pages = []
+    findings = []
+
+    def add_finding(level: str, message: str, names: list[str]) -> None:
+        findings.append({"level": level, "message": message, "pages": names})
+
+    for f in files:
+        entry = {"file": f.name, "sha256": sha256_file(f),
+                 "size_bytes": f.stat().st_size}
+        with Image.open(f) as img:
+            entry["format"] = img.format
+            entry["mode"] = img.mode
+            entry["px"] = list(img.size)
+            dpi = img.info.get("dpi")
+            entry["dpi"] = round(min(dpi), 1) if dpi else None
+            entry["pt"] = ([round(v / entry["dpi"] * 72.0, 1) for v in img.size]
+                           if entry["dpi"] else None)
+            # tonal range from a downsampled grayscale histogram
+            small = img.convert("L").resize((128, 128))
+            hist = small.histogram()
+            total = sum(hist)
+            acc, p1, p99 = 0, None, None
+            for i, c in enumerate(hist):
+                acc += c
+                if p1 is None and acc >= total * 0.01:
+                    p1 = i
+                if acc >= total * 0.99:
+                    p99 = i
+                    break
+            entry["tonal_p1_p99"] = [p1, p99]
+            if img.mode in ("RGB", "RGBA"):
+                rgb = img.convert("RGB").resize((64, 64))
+                r, g, bch = rgb.split()
+                rg = ImageChops.difference(r, g).histogram()
+                gb = ImageChops.difference(g, bch).histogram()
+                n = 64 * 64
+                spread = max(sum(i * c for i, c in enumerate(rg)),
+                             sum(i * c for i, c in enumerate(gb))) / n
+                entry["channel_spread"] = round(spread, 1)
+            else:
+                entry["channel_spread"] = 0.0
+        pages.append(entry)
+
+    def names(pred) -> list[str]:
+        return [e["file"] for e in pages if pred(e)]
+
+    no_dpi = names(lambda e: e["dpi"] is None)
+    if no_dpi:
+        add_finding("WARN", "no dpi metadata — scanner export setting unknown", no_dpi)
+    low = names(lambda e: e["dpi"] is not None and e["dpi"] < expected_dpi)
+    if low:
+        add_finding("WARN", f"dpi below the archival target ({expected_dpi})", low)
+    flat = names(lambda e: e["tonal_p1_p99"][1] - e["tonal_p1_p99"][0] < 40)
+    if flat:
+        add_finding("WARN", "narrow tonal range — check scanner exposure/gamma", flat)
+    color = names(lambda e: e["channel_spread"] > 3.0)
+    if color:
+        add_finding("INFO", "color content (expected for the plate; verse/translation "
+                            "pages should be near-gray)", color)
+    sizes = {tuple(e["px"]) for e in pages}
+    if len(sizes) > 1:
+        add_finding("WARN", "mixed pixel sizes across the sample — inconsistent "
+                            "scan bed or cropping", names(lambda e: True))
+    pts = {tuple(e["pt"]) for e in pages if e["pt"]}
+    if len(pts) > 1:
+        add_finding("WARN", "mixed physical page sizes (pt) across the sample",
+                    names(lambda e: True))
+    measured = sorted({tuple(e["pt"]) for e in pages if e["pt"]})
+    if measured:
+        add_finding("INFO", f"measured page size(s) {measured} pt vs source-B "
+                            f"reference {list(SOURCE_B_PT)} pt — trim-size question "
+                            f"stays with the board", names(lambda e: e["pt"]))
+
+    warns = [f for f in findings if f["level"] == "WARN"]
+    verdict = "ok" if not warns else "rescan-advised"
+
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "stage": "sample-qa",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "scan_dir": str(scan_dir),
+        "expected_dpi": expected_dpi,
+        "reference_pt": list(SOURCE_B_PT),
+        "pages": pages,
+        "findings": findings,
+        "verdict": verdict,
+    }
+    (out_dir / "report.json").write_text(json.dumps(report, indent=1) + "\n")
+    lines = [
+        "# sample-qa report", "",
+        f"- scan dir: `{scan_dir}` ({len(pages)} images)",
+        f"- expected dpi: {expected_dpi} · source-B reference: {list(SOURCE_B_PT)} pt",
+        f"- verdict: **{verdict}**", "",
+        "| file | px | dpi | pt | mode | tonal p1–p99 | spread |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for e in pages:
+        p99 = e["tonal_p1_p99"]
+        lines.append(
+            f"| {e['file']} | {e['px'][0]}x{e['px'][1]} | {e['dpi'] or '?'} "
+            f"| {'x'.join(str(v) for v in e['pt']) if e['pt'] else '?'} "
+            f"| {e['mode']} | {p99[0]}–{p99[1]} | {e['channel_spread']} |")
+    if findings:
+        lines += ["", "## Findings", ""]
+        lines += [f"- **{f['level']}:** {f['message']} ({', '.join(f['pages'])})"
+                  for f in findings]
+    (out_dir / "report.md").write_text("\n".join(lines) + "\n")
+
+    for e in pages:
+        p99 = e["tonal_p1_p99"]
+        print(f"{e['file']}: {e['px'][0]}x{e['px'][1]} dpi={e['dpi'] or '?'} "
+              f"mode={e['mode']} tonal={p99[0]}..{p99[1]} "
+              f"spread={e['channel_spread']}")
+    for f in findings:
+        print(f"{f['level']}: {f['message']} ({', '.join(f['pages'])})")
+    print(f"sample-qa {scan_dir}: {verdict} — {len(pages)} pages, "
+          f"{len(warns)} warnings -> {out_dir / 'report.md'}")
+    return 0 if not warns else 1
 
 
 def main(argv=None) -> int:
@@ -1335,6 +1525,19 @@ def main(argv=None) -> int:
 
     p_ver = sub.add_parser("verify", help="recheck an archive against its manifest")
     p_ver.add_argument("out_dir", type=Path)
+    p_ver.add_argument("--spot", type=int, default=None, metavar="N",
+                       help="deterministic evenly spaced N-page sample incl. first+last")
+    p_ver.add_argument("--pages", default=None, metavar="LIST",
+                       help="exact comma-separated 1-indexed pages, e.g. 1,2159,2303")
+
+    p_sqa = sub.add_parser("sample-qa",
+                           help="profile-check sample scans before full-book ingest "
+                                "(M4 gate, HOL-259)")
+    p_sqa.add_argument("scan_dir", type=Path, help="directory of sample scan images")
+    p_sqa.add_argument("--out", type=Path, default=Path("build"),
+                       help="output root; report lands in OUT/sample-qa/")
+    p_sqa.add_argument("--expected-dpi", type=int, default=600,
+                       help="archival dpi target the sample is checked against")
 
     def _book_and_archive(args):
         book = load_book(args.book)
@@ -1381,7 +1584,11 @@ def main(argv=None) -> int:
               f"manifest.json written")
         return 0
     if args.cmd == "verify":
-        return verify(args.out_dir)
+        return verify(args.out_dir,
+                      spot=args.spot,
+                      pages=parse_page_list(args.pages) if args.pages else None)
+    if args.cmd == "sample-qa":
+        return sample_qa(args.scan_dir, args.out, expected_dpi=args.expected_dpi)
     if args.cmd == "enhance":
         book, archive = _book_and_archive(args)
         man = enhance(book, archive, args.out, first=args.first,

@@ -80,6 +80,39 @@ ingest:
 verify:
     nix develop -c bindery verify archive
 
+# M4 gate (HOL-259): profile-check sample scans of the 1970s edition
+# before the board commits to scanning the whole book. Per-page dpi /
+# page-size / tonal report -> build/sample-qa/report.{json,md};
+# exit 1 on WARN findings (rescan advised).
+sample-qa DIR:
+    nix develop -c bindery sample-qa {{DIR}} --out build
+
+# --- durable storage (HOL-258) — runbook: docs/STORAGE.md ---
+
+# paperclip VM staging bundle (frozen M3 outputs; rsync-able from the tailnet)
+VM_STAGING := "orpheus@paperclip.elf-lizard.ts.net:bindery-m3-storage/"
+# TrueNAS dataset path the board's runbook creates (docs/STORAGE.md)
+NAS_TARGET := "orpheus@truenas.local:/mnt/flash/household/bindery/m3"
+# >=10 pages incl. the supplement boundary (2159) and the colophon (2303)
+SPOT_PAGES := "1,2,300,700,1169,1500,1900,2159,2200,2259,2303"
+
+# two-hop sync: paperclip VM staging -> laptop scratch -> TrueNAS dataset.
+# Run on the laptop (it holds both SSH trusts; the NAS has no route to the VM).
+# First run: create the dataset + fix ownership first — docs/STORAGE.md §1.
+storage-sync TARGET=NAS_TARGET TMP="/tmp/bindery-sync-tmp":
+    rsync -aH --info=stats2 {{VM_STAGING}} {{TMP}}/
+    rsync -aH --info=stats2 {{TMP}}/ {{TARGET}}/
+    rm -rf {{TMP}}
+
+# checksum spot-set of a synced tree, run on any host that sees it locally
+storage-verify ROOT:
+    nix develop -c bindery verify {{ROOT}}/archive --pages {{SPOT_PAGES}}
+    nix develop -c bindery verify {{ROOT}}/enhance --pages {{SPOT_PAGES}}
+
+# checksum spot-set over ssh straight on the TrueNAS (no repo needed there)
+storage-verify-nas NAS_PATH="/mnt/flash/household/bindery/m3" NAS_HOST="orpheus@truenas.local":
+    ssh {{NAS_HOST}} "python3 - {{NAS_PATH}}" < scripts/storage-spot-check.py
+
 # push main to GitHub origin + the sync-hub mirror on the paperclip VM (HOL-254)
 push:
     git push origin main
