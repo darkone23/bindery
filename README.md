@@ -27,7 +27,13 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   Boundaries only — no verbatim retype. The impure/unfree tooling (docling
   deps, model download) is confined to the stage's devenv
   (`devenv.nix`/`devenv.yaml`, run via `devenv shell`).
-- Next: M3 full volume + apparatus leaves, M4 splice of Tommy's scans
+- **M3 — full volume + apparatus** (HOL-256): `just enhance` (profile-driven
+  per-page ops; near-no-op on the clean vector body, per-page diffs in the
+  enhanced manifest), `bindery apparatus` (preface / ToC / errata leaves
+  typeset at trim geometry), `[order] full` (the complete-volume order from
+  the sarga map, apparatus leaves inserted first), and 16-page-signature
+  imposition: `just impose --full` / `just full`.
+- Next: M4 splice of Tommy's scans
   (see the plan).
 
 ## Interface
@@ -43,6 +49,9 @@ just verify           # recheck archive/ against its manifest
 just structure        # M2: docling layout + tesseract OCR -> sarga map/ToC/fidelity
 just page N           # "what does page N contain?" from the per-page records
 just structure-fixture # pytest for the structure stage (pure units + 7-page slice)
+just enhance          # M3: profile-driven per-page ops -> build/enhance/
+just apparatus        # M3: preface/ToC/errata leaves -> build/apparatus/
+just full             # M3 full chain: enhance -> assemble -> trim -> impose
 just assemble         # book.toml slice -> build/order.json (manifest-validated)
 just trim             # crop to the trim profile -> build/trim/ + trim.json
 just impose           # duplex Letter imposition -> build/press.pdf + proof
