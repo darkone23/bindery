@@ -40,9 +40,31 @@ assemble:
 trim: assemble
     nix develop -c bindery trim --book book.toml --out build
 
-# signature-impose onto duplex Letter: press.pdf + proof-screen.pdf
-impose: trim
+# signature-impose onto duplex Letter: press.pdf + proof-screen.pdf.
+# "just impose --full" runs the M3 full chain on the complete volume.
+impose mode="":
+    @if [ "{{mode}}" = "--full" ]; then just full; else just impose-m1; fi
+
+impose-m1: trim
     nix develop -c bindery impose --book book.toml --out build
+
+# apply [enhance] profile ops -> build/enhance/ (originals untouched;
+# near-no-op expected on the clean vector body)
+enhance:
+    nix develop -c bindery enhance --book book.toml --out build
+
+# render the apparatus leaves (preface, ToC, errata) -> build/apparatus/
+apparatus:
+    nix develop -c bindery apparatus --book book.toml --out build
+
+# full M3 chain on the complete volume: enhance -> assemble (enhanced +
+# apparatus) -> trim -> impose; emits press.pdf + proof-screen.pdf
+full: enhance
+    nix develop -c bindery apparatus --book book.toml --out build
+    nix develop -c bindery assemble --book book.toml --archive build/enhance --out build
+    nix develop -c bindery trim --book book.toml --archive build/enhance --out build
+    nix develop -c bindery impose --book book.toml --out build
+    @echo "M3 full outputs: build/press.pdf build/proof-screen.pdf (see PRINTING.md)"
 
 # full M1 chain: order -> trim -> press + proof
 proof: impose
