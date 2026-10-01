@@ -251,3 +251,96 @@ def test_press_face_pairing_16_page_signatures(m3):
                     if k != spine and k != ("bot_right" if spine == "top_left"
                                             else "bot_left"):
                         assert means[k] > means[spine] + 30, (face, want, k, means)
+
+
+# --- targeted supplement (board rev): sarga_range + ToC-only apparatus ------
+
+SUP_RANGE = {"kanda": 1, "first": 2, "last": 3}  # sargas 2-3 -> archive 5-8
+
+
+@pytest.fixture(scope="module")
+def sup(tmp_path_factory):
+    """Targeted supplement build: ToC leaf + Uttara-range pages only."""
+    out = tmp_path_factory.mktemp("sup")
+    b = load_bindery()
+    archive = out / "archive"
+    b.ingest(FIXTURE, archive, dpi=96, source_url="fixture://fixture8.pdf", gray=True)
+
+    build = out / "build"
+    (build / "structure").mkdir(parents=True)
+    (build / "structure" / "sarga-map.json").write_text(json.dumps(SARGA_MAP))
+
+    book = {"book": {"title": "sup-fixture"},
+            "source": {"archive": str(archive)},
+            "order": {"sarga_range": SUP_RANGE,
+                      "printed_numbering": NUMBERING,
+                      "apparatus_kinds": ["toc"],
+                      "sarga_map": str(build / "structure" / "sarga-map.json")},
+            "impose": {"signature_pages": 16}}
+
+    # filtered enhance: only the supplement's archive pages
+    b.enhance(book, archive, build, first=5, last=8)
+    aman = b.render_apparatus(book, archive, build)
+    order = b.build_order(book, build / "enhance", build / "order.json")
+    b.trim(book, build / "enhance", build)
+    b.impose(book, build)
+    return {"out": out, "build": build, "bindery": b, "book": book,
+            "archive": archive, "apparatus": aman, "order": order}
+
+
+def test_enhance_page_filter(sup):
+    man = json.loads((sup["build"] / "enhance" / "manifest.json").read_text())
+    got = [p["page"] for p in man["pages"]]
+    assert got == [5, 6, 7, 8]
+    assert man["enhance"]["span"] == [5, 8]
+    assert sup["bindery"].verify(sup["build"] / "enhance") == 0
+
+
+def test_supplement_renders_toc_only(sup):
+    aman = sup["apparatus"]
+    kinds = [lf["kind"] for lf in aman["leaves"]]
+    assert kinds == ["toc"], "targeted supplement: ToC only, no preface/errata"
+
+
+def test_supplement_order_is_toc_plus_range(sup):
+    order = sup["order"]
+    pages = order["pages"]
+    n_app = len([p for p in pages if p.get("apparatus")])
+    assert order["apparatus"]["leaves"] == n_app
+    assert n_app == 1
+    assert pages[0]["apparatus"]["kind"] == "toc"
+    body = [p["archive_page"] for p in pages[n_app:]]
+    assert body == [5, 6, 7, 8], "sarga range 2-3 expands to archive 5-8"
+    assert order["span"] == {"first": 5, "last": 8}
+
+
+def test_supplement_imposes_and_pairs(sup):
+    imp = json.loads((sup["build"] / "impose.json").read_text())
+    # 5 pages -> padded 8 -> 2 sheets in one 16-page signature
+    assert len(imp["sheets"]) == 2
+    meta = json.loads((sup["build"] / "trim.json").read_text())
+    by_pos = {p["position"]: p for p in meta["pages"]}
+    for sheet in imp["sheets"]:
+        for side in ("front", "back"):
+            for pos_name in ("top", "bottom"):
+                gpos = sheet[side][pos_name]["page"]
+                if gpos is None:
+                    assert sheet[side][pos_name]["rect"] is None
+                    continue
+                trimmed = sup["build"] / "trim" / by_pos[gpos]["out_file"]
+                assert trimmed.is_file()
+
+
+def test_supplement_toc_lists_only_range_rows(sup):
+    # the ToC block builder, filtered to the range (no OCR needed)
+    b = sup["bindery"]
+    smap = json.loads((sup["build"] / "structure" / "sarga-map.json").read_text())
+    blocks = b._toc_blocks(smap, NUMBERING, sarga_range=SUP_RANGE)
+    rows = [blk["text"] for blk in blocks if blk["text"].startswith("Sarga ")]
+    assert rows == [
+        "Sarga 2 · archive pages 5–6 · printed 3–4",
+        "Sarga 3 · archive pages 7–8 · printed 5–6",
+    ], rows
+    joined = " ".join(blk["text"] for blk in blocks)
+    assert "sargas 2–3" in joined
+    assert "missing from the" in joined

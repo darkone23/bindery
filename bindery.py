@@ -389,14 +389,17 @@ def enhance_page(img, ops: dict, dpi: int):
     return img, ops_applied, details
 
 
-def enhance(book: dict, archive: Path, out_dir: Path) -> dict:
+def enhance(book: dict, archive: Path, out_dir: Path,
+            first: int | None = None, last: int | None = None) -> dict:
     """Apply the [enhance] profile per page; write enhanced pages + manifest.
 
-    Streams one raster at a time (book-scale safe). The enhanced dir is a
-    first-class archive: manifest mirrors the archive schema (source +
-    render copied through, per-page sha256 of the enhanced raster), so
-    `verify` and `assemble --archive build/enhance` consume it unchanged.
-    Per-page ops + diffs are recorded in the manifest.
+    Streams one raster at a time (book-scale safe). Optional first/last
+    page filter for targeted runs (pages outside the span are skipped
+    without being opened). The enhanced dir is a first-class archive:
+    manifest mirrors the archive schema (source + render copied through,
+    per-page sha256 of the enhanced raster), so `verify` and
+    `assemble --archive build/enhance` consume it unchanged. Per-page
+    ops + diffs are recorded in the manifest.
     """
     from PIL import Image
 
@@ -417,6 +420,11 @@ def enhance(book: dict, archive: Path, out_dir: Path) -> dict:
     touched = 0
     near_noop = 0
     for entry in src_manifest["pages"]:
+        page_no = int(entry["page"])
+        if first is not None and page_no < int(first):
+            continue
+        if last is not None and page_no > int(last):
+            continue
         src = archive / entry["file"]
         img = Image.open(src)
         img.load()
@@ -453,7 +461,8 @@ def enhance(book: dict, archive: Path, out_dir: Path) -> dict:
         "source": src_manifest.get("source", {}),
         "render": src_manifest.get("render", {}),
         "enhance": {"cfg": cfg, "pages": len(pages_meta),
-                    "touched_pages": touched, "near_noop_pages": near_noop},
+                    "touched_pages": touched, "near_noop_pages": near_noop,
+                    "span": [first, last] if first or last else None},
         "pages": pages_meta,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
@@ -581,8 +590,20 @@ def _render_text_page(px: tuple[int, int], blocks: list[dict],
 _app_dpi_f = 600 / 72.0
 
 
-def _toc_blocks(smap: dict, numbering: dict) -> list[dict]:
-    """ToC content: header note + kanda sections + per-sarga rows."""
+def _toc_blocks(smap: dict, numbering: dict,
+                sarga_range: dict | None = None) -> list[dict]:
+    """ToC content: header note + kanda sections + per-sarga rows.
+
+    sarga_range ({kanda, first, last}) filters the listing to that
+    targeted span (the supplement's contents); the kanda header then
+    notes the range.
+    """
+    kandas = smap["kandas"]
+    if sarga_range:
+        kanda = int(sarga_range["kanda"])
+        kandas = [k for k in kandas if int(k["kanda"]) == kanda]
+        if not kandas:
+            raise SystemExit(f"toc scope: no kanda {kanda} in the sarga map")
     blocks: list[dict] = [
         {"text": "TABLE OF CONTENTS", "font": "bold", "size_pt": 24,
          "gap_pt": 14, "align": "center"},
@@ -594,13 +615,31 @@ def _toc_blocks(smap: dict, numbering: dict) -> list[dict]:
                  "archive page 1169 (printed = archive − 1167).",
          "font": "italic", "size_pt": 9.5, "gap_pt": 18},
     ]
-    for k in smap["kandas"]:
+    if sarga_range:
         blocks.append({
-            "text": f"{k['book_token']} — {k['name']}-kanda "
-                    f"({k['sarga_count']} sargas, archive pages "
-                    f"{k['start_page']}–{k['end_page']})",
-            "font": "bold", "size_pt": 13, "gap_pt": 10})
-        for s in k["sargas"]:
+            "text": f"This supplement covers sargas "
+                    f"{int(sarga_range['first'])}–{int(sarga_range['last'])} "
+                    "of the Uttara-kanda — the portion missing from the "
+                    "1970s edition it accompanies.",
+            "font": "italic", "size_pt": 9.5, "gap_pt": 18})
+    for k in kandas:
+        sargas = k["sargas"]
+        if sarga_range:
+            lo = int(sarga_range["first"])
+            hi = int(sarga_range["last"])
+            sargas = [s for s in sargas
+                      if lo <= int(s["sarga"]) <= hi]
+        hdr = (f"{k['book_token']} — {k['name']}-kanda "
+               f"({len(sargas)} sargas, archive pages "
+               f"{sargas[0]['start_page']}–{sargas[-1]['end_page']})")
+        if sarga_range:
+            hdr = (f"{k['book_token']} — {k['name']}-kanda, sargas "
+                   f"{int(sarga_range['first'])}–{int(sarga_range['last'])} "
+                   f"(archive pages {sargas[0]['start_page']}–"
+                   f"{sargas[-1]['end_page']})")
+        blocks.append({"text": hdr, "font": "bold", "size_pt": 13,
+                       "gap_pt": 10})
+        for s in sargas:
             pr = _printed_number(int(s["start_page"]), numbering)
             row = (f"Sarga {s['sarga']} · archive pages "
                    f"{s['start_page']}–{s['end_page']}")
@@ -718,6 +757,7 @@ def render_apparatus(book: dict, archive: Path, out_dir: Path) -> dict:
     smpath = Path(spec.get("sarga_map", "build/structure/sarga-map.json"))
     smap = json.loads(smpath.read_text())
     numbering = spec.get("printed_numbering", {})
+    sarga_range = spec.get("sarga_range")
 
     out = out_dir / "apparatus"
     out.mkdir(parents=True, exist_ok=True)
@@ -733,12 +773,14 @@ def render_apparatus(book: dict, archive: Path, out_dir: Path) -> dict:
                        "sha256": sha256_file(out / name),
                        "size_bytes": (out / name).stat().st_size})
 
-    emit("preface", _preface_blocks(smap, numbering))
+    if not sarga_range:
+        # full-volume apparatus; the targeted supplement renders the ToC only
+        emit("preface", _preface_blocks(smap, numbering))
 
     # ToC: paginate the sarga rows across leaves (measured, not estimated)
     margin_px = round(54 * _app_dpi_f)
     usable = px[1] - 2 * margin_px
-    toc = _toc_blocks(smap, numbering)
+    toc = _toc_blocks(smap, numbering, sarga_range=sarga_range)
     head, rows = toc[:3], toc[3:]
     head_h = _measure_blocks(head, px, fonts, _app_dpi_f)
     cont_head = [{"text": "TABLE OF CONTENTS (continued)", "font": "bold",
@@ -760,7 +802,8 @@ def render_apparatus(book: dict, archive: Path, out_dir: Path) -> dict:
         page_blocks = list(head) if i == 0 else list(cont_head)
         page_blocks.extend(chunk)
         emit("toc", page_blocks)
-    emit("errata", _errata_blocks(smap))
+    if not sarga_range:
+        emit("errata", _errata_blocks(smap))
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -784,51 +827,15 @@ def build_order(book: dict, archive: Path, order_path: Path | None = None) -> di
     manifest = json.loads((archive / "manifest.json").read_text())
     by_page = {e["page"]: e for e in manifest["pages"]}
     spec = book.get("order", {})
-    if "pages" in spec:
-        seq = [int(p) for p in spec["pages"]]
-    elif "slice" in spec:
-        sl = spec["slice"]
-        seq = list(range(int(sl["first"]), int(sl["last"]) + 1))
-    elif spec.get("full"):
-        # full-volume order: sarga map (M2) tiles the archive span; the
-        # apparatus manifest (rendered by `bindery apparatus`) is inserted
-        # in front (preface -> ToC -> errata), then every archive page.
-        order_dir = order_path.parent if order_path else Path("build")
-        default_sm = order_dir / "structure" / "sarga-map.json"
-        smpath = Path(spec.get("sarga_map", str(default_sm)))
-        smap = json.loads(smpath.read_text())
-        first, last = int(smap["span"]["first"]), int(smap["span"]["last"])
-        blocks = [(int(b["start_page"]), int(b["end_page"]), "interstitial")
-                  for b in smap["interstitial_blocks"]]
-        blocks += [(int(k["start_page"]), int(k["end_page"]),
-                    f"kanda {k['kanda']}")
-                   for k in smap["kandas"]]
-        blocks.sort()
-        pos = first
-        for s, e, kind in blocks:
-            if s != pos:
-                raise SystemExit(
-                    f"sarga map does not tile archive pages {first}-{last}: "
-                    f"{kind} starts at {s}, expected {pos}")
-            if e < s:
-                raise SystemExit(f"sarga map block {kind} ends before it starts")
-            pos = e + 1
-        if pos != last + 1:
-            raise SystemExit(
-                f"sarga map covers {pos - 1} of archive pages {first}-{last}")
+    order_dir = order_path.parent if order_path else Path("build")
 
-        order_dir = order_path.parent if order_path else Path("build")
-        default_ap = order_dir / "apparatus" / "manifest.json"
-        apath = Path(spec.get("apparatus", str(default_ap)))
-        if not apath.is_file():
-            raise SystemExit(f"no apparatus manifest: {apath} "
-                             "(run `bindery apparatus` first)")
-        aman = json.loads(apath.read_text())
-        ap_dir = apath.parent
-
+    def _apparatus_entries(aman: dict, ap_dir: Path, kinds) -> list[dict]:
+        """Validated apparatus order entries; kinds None = all kinds."""
         pages = []
         position = 1
         for leaf in sorted(aman["leaves"], key=lambda lf: lf["leaf"]):
+            if kinds is not None and leaf["kind"] not in kinds:
+                continue
             lf = ap_dir / leaf["file"]
             if not lf.is_file():
                 raise SystemExit(f"missing apparatus leaf: {lf}")
@@ -839,6 +846,12 @@ def build_order(book: dict, archive: Path, order_path: Path | None = None) -> di
                           "apparatus": {"kind": leaf["kind"],
                                         "leaf": leaf["leaf"]}})
             position += 1
+        return pages
+
+    def _archive_entries(first: int, last: int, start_position: int) -> list[dict]:
+        """Validated archive order entries for a contiguous page span."""
+        pages = []
+        position = start_position
         for n in range(first, last + 1):
             entry = by_page.get(n)
             if entry is None:
@@ -852,6 +865,89 @@ def build_order(book: dict, archive: Path, order_path: Path | None = None) -> di
             pages.append({"position": position, "archive_page": n,
                           "file": entry["file"], "sha256": entry["sha256"]})
             position += 1
+        return pages
+
+    def _apparatus_or_fail() -> tuple[dict, Path, Path]:
+        default_ap = order_dir / "apparatus" / "manifest.json"
+        apath = Path(spec.get("apparatus", str(default_ap)))
+        if not apath.is_file():
+            raise SystemExit(f"no apparatus manifest: {apath} "
+                             "(run `bindery apparatus` first)")
+        aman = json.loads(apath.read_text())
+        return aman, apath.parent, apath
+
+    def _write_order(order: dict) -> dict:
+        target = order_path or Path("build") / "order.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(order, indent=2) + "\n")
+        return order
+
+    if "pages" in spec:
+        seq = [int(p) for p in spec["pages"]]
+    elif "slice" in spec:
+        sl = spec["slice"]
+        seq = list(range(int(sl["first"]), int(sl["last"]) + 1))
+    elif spec.get("full") or spec.get("sarga_range"):
+        # map-driven orders: the sarga map (M2) supplies page spans; the
+        # apparatus manifest (rendered by `bindery apparatus`) is inserted
+        # in front (kinds filtered by [order] apparatus_kinds when set).
+        default_sm = order_dir / "structure" / "sarga-map.json"
+        smpath = Path(spec.get("sarga_map", str(default_sm)))
+        smap = json.loads(smpath.read_text())
+        kinds = spec.get("apparatus_kinds")
+
+        if spec.get("full"):
+            # full-volume order: kandas + interstitials must tile the span
+            first, last = int(smap["span"]["first"]), int(smap["span"]["last"])
+            blocks = [(int(b["start_page"]), int(b["end_page"]), "interstitial")
+                      for b in smap["interstitial_blocks"]]
+            blocks += [(int(k["start_page"]), int(k["end_page"]),
+                        f"kanda {k['kanda']}")
+                       for k in smap["kandas"]]
+            blocks.sort()
+            pos = first
+            for s, e, kind in blocks:
+                if s != pos:
+                    raise SystemExit(
+                        f"sarga map does not tile archive pages {first}-{last}: "
+                        f"{kind} starts at {s}, expected {pos}")
+                if e < s:
+                    raise SystemExit(
+                        f"sarga map block {kind} ends before it starts")
+                pos = e + 1
+            if pos != last + 1:
+                raise SystemExit(
+                    f"sarga map covers {pos - 1} of archive pages "
+                    f"{first}-{last}")
+        else:
+            # targeted order: expand a kanda/sarga range into its page span
+            rg = spec["sarga_range"]
+            kanda, s_first, s_last = (int(rg["kanda"]), int(rg["first"]),
+                                      int(rg["last"]))
+            k = next((k for k in smap["kandas"]
+                      if int(k["kanda"]) == kanda), None)
+            if k is None:
+                raise SystemExit(f"sarga map has no kanda {kanda}")
+            sel = [s for s in k["sargas"]
+                   if s_first <= int(s["sarga"]) <= s_last]
+            if len(sel) != s_last - s_first + 1:
+                have = sorted(int(s["sarga"]) for s in sel)
+                raise SystemExit(
+                    f"sarga map kanda {kanda} lacks sargas "
+                    f"{s_first}-{s_last}: {have}")
+            pos = int(sel[0]["start_page"])
+            for s in sel:
+                if int(s["start_page"]) != pos:
+                    raise SystemExit(
+                        f"sarga range does not tile archive pages: sarga "
+                        f"{s['sarga']} starts at {s['start_page']}, "
+                        f"expected {pos}")
+                pos = int(s["end_page"]) + 1
+            first, last = int(sel[0]["start_page"]), int(sel[-1]["end_page"])
+
+        aman, ap_dir, apath = _apparatus_or_fail()
+        pages = _apparatus_entries(aman, ap_dir, kinds)
+        pages += _archive_entries(first, last, len(pages) + 1)
 
         order = {
             "schema_version": SCHEMA_VERSION,
@@ -860,16 +956,16 @@ def build_order(book: dict, archive: Path, order_path: Path | None = None) -> di
                 timespec="seconds"),
             "book": book.get("book", {}).get("title", ""),
             "archive": str(archive),
-            "apparatus": {"manifest": str(apath), "leaves": len(aman["leaves"])},
+            "apparatus": {"manifest": str(apath),
+                          "leaves": len([p for p in pages
+                                         if p.get("apparatus")])},
             "span": {"first": first, "last": last},
             "pages": pages,
         }
-        order_path = order_path or Path("build") / "order.json"
-        order_path.parent.mkdir(parents=True, exist_ok=True)
-        order_path.write_text(json.dumps(order, indent=2) + "\n")
-        return order
+        return _write_order(order)
     else:
-        raise SystemExit("book.toml [order]: need 'pages', 'slice' or 'full'")
+        raise SystemExit("book.toml [order]: need 'pages', 'slice', "
+                         "'sarga_range' or 'full'")
 
     pages = []
     for position, n in enumerate(seq, start=1):
@@ -1163,6 +1259,12 @@ def verify(out_dir: Path) -> int:
     mpath = out_dir / "manifest.json"
     manifest = json.loads(mpath.read_text())
     total = manifest["source"]["pages"]
+    # a filtered (enhance --first/--last) manifest lists only its span
+    span = (manifest.get("enhance") or {}).get("span")
+    if span and (span[0] or span[1]):
+        lo = int(span[0]) if span[0] else 1
+        hi = int(span[1]) if span[1] else total
+        total = hi - lo + 1
     pages = manifest["pages"]
     bad = 0
     if len(pages) != total:
@@ -1210,6 +1312,10 @@ def main(argv=None) -> int:
     p_enh.add_argument("--book", type=Path, default=Path("book.toml"))
     p_enh.add_argument("--archive", type=Path, default=None)
     p_enh.add_argument("--out", type=Path, default=Path("build"))
+    p_enh.add_argument("--first", type=int, default=None,
+                       help="first archive page to process (targeted runs)")
+    p_enh.add_argument("--last", type=int, default=None,
+                       help="last archive page to process (targeted runs)")
 
     p_app = sub.add_parser("apparatus", help="render preface/ToC/errata leaves at trim geometry")
     p_app.add_argument("--book", type=Path, default=Path("book.toml"))
@@ -1243,7 +1349,8 @@ def main(argv=None) -> int:
         return verify(args.out_dir)
     if args.cmd == "enhance":
         book, archive = _book_and_archive(args)
-        man = enhance(book, archive, args.out)
+        man = enhance(book, archive, args.out, first=args.first,
+                      last=args.last)
         e = man["enhance"]
         print(f"enhanced {e['pages']} pages -> {args.out / 'enhance'} "
               f"(touched {e['touched_pages']}, near-no-op {e['near_noop_pages']})")
