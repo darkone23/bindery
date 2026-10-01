@@ -148,7 +148,7 @@ def _fake_archive(tmp_path, n=5):
 def test_order_from_slice(b, tmp_path):
     archive = _fake_archive(tmp_path)
     book = {"order": {"slice": {"first": 3, "last": 3}}}
-    order = b.build_order(book, archive)
+    order = b.build_order(book, archive, tmp_path / "order.json")
     assert [p["position"] for p in order["pages"]] == [1]
     assert order["pages"][0]["archive_page"] == 3
     assert order["pages"][0]["file"] == "page-0003.png"
@@ -159,14 +159,15 @@ def test_order_from_slice(b, tmp_path):
 def test_order_from_explicit_list(b, tmp_path):
     archive = _fake_archive(tmp_path)
     book = {"order": {"pages": [3, 1]}}
-    order = b.build_order(book, archive)
+    order = b.build_order(book, archive, tmp_path / "order.json")
     assert [p["archive_page"] for p in order["pages"]] == [3, 1]
 
 
 def test_order_rejects_missing_page(b, tmp_path):
     archive = _fake_archive(tmp_path)
     with pytest.raises(SystemExit):
-        b.build_order({"order": {"slice": {"first": 1, "last": 5}}}, archive)
+        b.build_order({"order": {"slice": {"first": 1, "last": 5}}}, archive,
+                      tmp_path / "order.json")
 
 
 # --- book config ----------------------------------------------------------
