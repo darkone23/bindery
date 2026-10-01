@@ -11,3 +11,11 @@ need a read-through at typesetting time (they are few — see counts).
 
 ## Fills
 
+
+## Print-run read-through sample (M4c, 2026-10-02)
+
+- **Head**: sarga 42.1 translation ("Then Rama, the mighty-armed one, having dismissed the gold-adorned Pushpaka chariot...") matches the printed scan p. 2159 word-for-word.
+- **Tail**: printed p. 2303 carries verse markers (22)-(25); each matches the dataset: 111.22 (father/grandfather -> Vishnu), 111.23 (four aims of life, heard with diligence), 111.24 ("goes to the abode of Brahma and is forever honoured" — exact), 111.25 (strength/balam of Vishnu). The printed volume's final page ends at verse 25 = dataset verse count for sarga 111: parity holds.
+- **Mid**: visual read-through of proof pages 120-121 (Shambuka episode) — dialogue quotes render correctly, per-verse anchors align with the Devanagari blocks.
+- **Devanagari**: generated-IAST agreement with the site's own transliteration is 90.9% exact across all 1672 verses (test-pinned floor 88%); shaping verified in render (conjuncts/repha/anusvara/matra order).
+- Coverage: printed sarga 111 ends at verse 25 (site verse 26 absent site-wide) — recorded, no content loss vs the printed volume.

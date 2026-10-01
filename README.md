@@ -44,10 +44,13 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   supplement is superseded; the deliverable is a typeset fascicle of
   Uttara-kanda sargas 42–111 mirroring the 1970s typesetting. Sanskrit +
   English text comes from the harvested e-text
-  (`dataset/uttara-eText-ramayana-info.json`, 1668 verses, board-directed
+  (`dataset/uttara-eText-ramayana-info.json`, 1672 verses, board-directed
   source): `just uttara-eText` re-harvests it, `just uttara-gapfill`
-  closes field gaps (alt-rendering devanagari, generated IAST, Gita Press
-  scan-OCR translations) and writes the QC report.
+  closes field gaps (fallback tooling; the seam-aware harvest is
+  complete site-natively) and writes the QC report. The full chain is
+  `just fascicle`: typeset (WeasyPrint + Lohit, 70s-mirror profile,
+  editorial-note title page) → trim → impose → **66 duplex Letter
+  sheets in 17 signatures** (`build/press.pdf` + `proof-screen.pdf`).
 
 ## Interface
 
@@ -72,6 +75,7 @@ just impose           # duplex Letter imposition -> build/press.pdf + proof
 just proof            # the full M1 chain
 just uttara-eText     # M4a: harvest Uttara 42-111 e-text from ramayana.info -> dataset/
 just uttara-gapfill   # M4a: close dataset field gaps (alt/IAST/scan-OCR) + QC report
+just fascicle         # M4b/c: typeset 42-111 -> trim -> impose -> build/press.pdf
 ```
 
 ## Layout

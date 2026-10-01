@@ -108,3 +108,56 @@ trim-size confirmation remains open — it can override this profile in
   N+1…N+2303 are archive pages 1–2303 in order.
 - Near-no-op **enhance** pass sits in front of assemble; its manifest
   records every per-page op and diff.
+
+---
+
+# M4 — the Uttara-kanda fascicle (HOL-259, plan rev 4, typeset)
+
+This is the current deliverable: the missing cantos, **typeset to mirror
+the 1970s edition** (the scanned M3 supplement is superseded). One
+command rebuilds everything:
+
+```sh
+just fascicle     # typeset sargas 42-111 -> trim -> impose
+```
+
+Outputs (build/):
+
+| Artifact | What it is |
+|---|---|
+| `typeset/` | the rendered raster archive (600 dpi) + manifest; page 1 is the title page (editorial note), page 2 the ToC, pages 3+ the sargas |
+| `order.json` | the fascicle sequence (pages-mode) |
+| `trim/` | pass-through trims (the typeset canvas IS the page: 444 × 667.44 pt) |
+| `press.pdf` | **66 duplex US-Letter sheets in 17 signatures** — the print file |
+| `proof-screen.pdf` | all 262 pages in reading order for on-screen proofing |
+
+## Print settings
+
+Same as the M1 proof (see the first section above): US Letter portrait,
+**duplex ON, flip on LONG edge**, 100% scale, auto-rotate off, all 132
+PDF pages (66 sheets × 2 sides).
+
+## Sheet organization
+
+16-page signatures (4 nested sheets each) for signatures 1–16; the last
+signature (pages 259–262) is a single nested pair (2 sheets). Every side
+carries a margin label — `SIGn SHEETm/k FRONT|BACK pages a|b` — collate
+against the labels, not against arithmetic. Folding is identical to the
+M1 proof: fold top half down, rotate 90° CCW (spine left), nest per
+signature, stack signatures in order.
+
+## Reading-order proofing
+
+`build/proof-screen.pdf` shows the pages at trim size in reading order —
+check the Devanagari verse blocks (conjuncts, matras), the two-column
+translation with per-verse `(n)` anchors, the running head + folio, the
+canto headings, and the title page's editorial note before printing.
+
+## Sourcing and provenance
+
+Text: ramayana.info (Sanskrit + English), cross-checked against GRETIL
+(Tokunaga/Smith, sargas 42–100 = vulgate 41–100) — see
+`dataset/uttara-eText-PROVENANCE.md` and `dataset/uttara-eText-QC.md`.
+The vulgate's 111-sarga Uttara is followed deliberately; the editorial
+note on the title page explains the relationship to the Baroda critical
+edition (Shah 1975). Regenerate the text data with `just uttara-eText`.
