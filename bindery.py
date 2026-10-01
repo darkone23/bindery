@@ -740,14 +740,20 @@ def render_apparatus(book: dict, archive: Path, out_dir: Path) -> dict:
     manifest (per-leaf sha256, kind, leaf index) consumed by
     `bindery assemble` [order] full.
     """
+    from PIL import Image
+
     global _app_dpi_f
     archive = Path(archive)
     src_manifest = json.loads((archive / "manifest.json").read_text())
-    page_w, page_h = parse_page_size(
-        src_manifest["source"]["pdfinfo"]["Page size"])
     dpi = int(src_manifest["render"]["dpi"])
     _app_dpi_f = dpi / 72.0
-    px = (round(page_w * _app_dpi_f), round(page_h * _app_dpi_f))
+    # Leaf geometry follows the actual rasters (see trim(): pdfinfo's
+    # stated Page size disagrees with the pdftoppm render; the rasters
+    # are what trimmed body pages carry, so apparatus leaves match them).
+    first_page = src_manifest["pages"][0]
+    with Image.open(archive / first_page["file"]) as _probe:
+        px = _probe.size
+    page_w, page_h = px[0] / _app_dpi_f, px[1] / _app_dpi_f
 
     fonts = _apparatus_fonts()
     if len(fonts) < 3:
@@ -1014,13 +1020,24 @@ def trim(book: dict, archive: Path, out_dir: Path) -> dict:
     archive = Path(archive)
     order = json.loads((out_dir / "order.json").read_text())
     manifest = json.loads((archive / "manifest.json").read_text())
-    page_w, page_h = parse_page_size(manifest["source"]["pdfinfo"]["Page size"])
     dpi = int(manifest["render"]["dpi"])
     f = dpi / 72.0
     tcfg = book.get("trim", {})
     imp = dict(IMPOSE_DEFAULTS)
     imp.update(book.get("impose", {}))
     plan = signature_plan(len(order["pages"]), int(imp["signature_pages"]))
+
+    # Derive the page size from the actual rasters: the source PDF's
+    # stated Page size (444 x 667.44 pt) disagrees with the pdftoppm
+    # render (3700 x 5600 px = 444 x 672 pt), and the rasters are what
+    # trim works on — trusting pdfinfo would silently crop ~38 px off
+    # every page's bottom edge.
+    first_body = next((e for e in order["pages"]
+                       if not e.get("apparatus")), None)
+    if first_body is None:
+        raise SystemExit("order has no archive pages to trim")
+    with Image.open(archive / first_body["file"]) as _probe:
+        page_w, page_h = _probe.size[0] / f, _probe.size[1] / f
 
     slot_of = {}
     for si, sig in enumerate(plan, start=1):
