@@ -80,6 +80,13 @@ ingest:
 verify:
     nix develop -c bindery verify archive
 
+# M4 gate (HOL-259): profile-check sample scans of the 1970s edition
+# before the board commits to scanning the whole book. Per-page dpi /
+# page-size / tonal report -> build/sample-qa/report.{json,md};
+# exit 1 on WARN findings (rescan advised).
+sample-qa DIR:
+    nix develop -c bindery sample-qa {{DIR}} --out build
+
 # --- durable storage (HOL-258) — runbook: docs/STORAGE.md ---
 
 # paperclip VM staging bundle (frozen M3 outputs; rsync-able from the tailnet)
