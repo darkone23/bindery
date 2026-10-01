@@ -1289,8 +1289,31 @@ def impose(book: dict, out_dir: Path) -> dict:
     return meta
 
 
-def verify(out_dir: Path) -> int:
-    """Check an archive against its manifest; exit 0 if consistent."""
+def spot_indices(total: int, count: int) -> list[int]:
+    """Deterministic evenly spaced 1-indexed page sample incl. first and last."""
+    count = max(1, min(count, total))
+    if count == 1:
+        return [1]
+    return sorted({1 + round(i * (total - 1) / (count - 1)) for i in range(count)})
+
+
+def parse_page_list(spec: str) -> list[int]:
+    """Parse "1,2,300" into a sorted unique list of 1-indexed page numbers."""
+    pages = sorted({int(x) for x in spec.split(",") if x.strip()})
+    if not pages or pages[0] < 1:
+        raise SystemExit("--pages: need comma-separated 1-indexed page numbers")
+    return pages
+
+
+def verify(out_dir: Path, spot: int | None = None,
+           pages: list[int] | None = None) -> int:
+    """Check an archive against its manifest; exit 0 if consistent.
+
+    Default: every page. `spot=N` checks a deterministic evenly spaced
+    sample of N pages (first and last always included); `pages=1,2,300`
+    checks exactly those 1-indexed pages. Spot/pages mode prints one
+    line per checked page — the compare table for storage syncs (HOL-258).
+    """
     mpath = out_dir / "manifest.json"
     manifest = json.loads(mpath.read_text())
     total = manifest["source"]["pages"]
@@ -1300,22 +1323,42 @@ def verify(out_dir: Path) -> int:
         lo = int(span[0]) if span[0] else 1
         hi = int(span[1]) if span[1] else total
         total = hi - lo + 1
-    pages = manifest["pages"]
+    all_pages = manifest["pages"]
     bad = 0
-    if len(pages) != total:
-        print(f"MISMATCH: manifest lists {len(pages)} pages, source has {total}")
+    if len(all_pages) != total:
+        print(f"MISMATCH: manifest lists {len(all_pages)} pages, source has {total}")
         bad += 1
-    for entry in pages:
+    by_page = {e["page"]: e for e in all_pages}
+    if pages is not None:
+        unknown = [n for n in pages if n not in by_page]
+        if unknown:
+            raise SystemExit(f"--pages: manifest has no page(s) {unknown} (1..{total})")
+        selected = pages
+    elif spot is not None:
+        selected = spot_indices(total, spot)
+    else:
+        selected = [e["page"] for e in all_pages]
+    listed = spot is not None or pages is not None
+    for n in selected:
+        entry = by_page[n]
         p = out_dir / entry["file"]
         if not p.is_file():
             print(f"MISSING: {p}")
             bad += 1
             continue
+        if p.stat().st_size != entry["size_bytes"]:
+            print(f"SIZE MISMATCH: {p}")
+            bad += 1
         if sha256_file(p) != entry["sha256"]:
             print(f"HASH MISMATCH: {p}")
             bad += 1
+        elif listed:
+            print(f"OK {n} {entry['file']} {entry['sha256']} {entry['size_bytes']}B")
+    mode = (f"spot({len(selected)})" if spot is not None
+            else f"pages({len(selected)})" if pages is not None
+            else "full")
     status = "OK" if bad == 0 else f"FAILED ({bad} problems)"
-    print(f"verify {out_dir}: {status} — {len(pages)}/{total} pages, "
+    print(f"verify {out_dir} [{mode}]: {status} — {len(all_pages)}/{total} pages, "
           f"dpi={manifest['render']['dpi']}")
     return 0 if bad == 0 else 1
 
@@ -1335,6 +1378,10 @@ def main(argv=None) -> int:
 
     p_ver = sub.add_parser("verify", help="recheck an archive against its manifest")
     p_ver.add_argument("out_dir", type=Path)
+    p_ver.add_argument("--spot", type=int, default=None, metavar="N",
+                       help="deterministic evenly spaced N-page sample incl. first+last")
+    p_ver.add_argument("--pages", default=None, metavar="LIST",
+                       help="exact comma-separated 1-indexed pages, e.g. 1,2159,2303")
 
     def _book_and_archive(args):
         book = load_book(args.book)
@@ -1381,7 +1428,9 @@ def main(argv=None) -> int:
               f"manifest.json written")
         return 0
     if args.cmd == "verify":
-        return verify(args.out_dir)
+        return verify(args.out_dir,
+                      spot=args.spot,
+                      pages=parse_page_list(args.pages) if args.pages else None)
     if args.cmd == "enhance":
         book, archive = _book_and_archive(args)
         man = enhance(book, archive, args.out, first=args.first,
