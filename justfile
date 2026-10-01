@@ -133,6 +133,18 @@ uttara-eText:
 uttara-gapfill:
     devenv shell -- python3 fill_uttara_gaps.py --archive archive
 
+# M4b/c: full fascicle chain — typeset sargas 42-111 (WeasyPrint, 70s-
+# mirror profile) -> trim -> impose. Outputs build/press.pdf (66 duplex
+# Letter sheets, 17 signatures) + proof-screen.pdf + build/typeset/
+# (raster archive + manifest) + build/order.json. Needs the typeset
+# devshell (nix develop .#typeset).
+fascicle:
+    mkdir -p build
+    nix develop .#typeset -c python3 uttara_typeset.py --sargas 42-111 --out build
+    nix develop -c bindery trim --book book-fascicle.toml --archive build/typeset
+    nix develop -c bindery impose --book book-fascicle.toml --out build
+    @echo "fascicle outputs: build/press.pdf build/proof-screen.pdf (see PRINTING.md)"
+
 # fetch the source PDF into dataset/ (public URL, no auth; run once)
 dataset-fetch:
     mkdir -p dataset
