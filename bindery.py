@@ -317,6 +317,139 @@ def crop_rect(page_w: float, page_h: float, verso: bool, depth: int,
     return (max(0.0, x0), max(0.0, y0), min(page_w, x1), min(page_h, y1))
 
 
+ENHANCE_DEFAULTS = {
+    "border_pt": {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0},
+    "levels": {"black_pct": 0.5, "white_pct": 99.5},
+}
+
+
+def enhance_page(img, ops: dict, dpi: int):
+    """Apply [enhance] profile ops to one page raster.
+
+    Returns (image, ops_applied, details). Ops: border/rail removal
+    (fixed pt margins cropped, rails = scanner/photocopy border junk)
+    and percentile levels normalization, applied per channel band so it
+    works on both gray (L) and color (RGB) rasters. On a clean full-range
+    body the levels pass is a recorded no-op ("levels:no-op"); a zero-pt
+    border is simply not applied. Callers never mutate the original.
+    """
+    ops_applied = []
+    details: dict = {"border_px": None, "levels": None}
+    f = dpi / 72.0
+    b = dict(ENHANCE_DEFAULTS["border_pt"])
+    b.update(ops.get("border_pt", {}) or {})
+    l_pt, r_pt = float(b["left"]), float(b["right"])
+    t_pt, bo_pt = float(b["top"]), float(b["bottom"])
+    if (l_pt, r_pt, t_pt, bo_pt) != (0.0, 0.0, 0.0, 0.0):
+        box = (round(l_pt * f), round(t_pt * f),
+               img.size[0] - round(r_pt * f), img.size[1] - round(bo_pt * f))
+        if box[0] < box[2] and box[1] < box[3]:
+            details["border_px"] = list(box)
+            img = img.crop(box)
+            ops_applied.append("border")
+
+    lv = dict(ENHANCE_DEFAULTS["levels"])
+    lv.update(ops.get("levels", {}) or {})
+    bp_pct, wp_pct = float(lv["black_pct"]), float(lv["white_pct"])
+
+    hist = img.histogram()
+    bands = len(hist) // 256
+    luts = []
+    levels = []
+    for band in range(bands):
+        h = hist[band * 256:(band + 1) * 256]
+        total = sum(h)
+        black = white = None
+        cum = 0
+        for v, n in enumerate(h):
+            cum += n
+            if black is None and cum >= total * bp_pct / 100.0:
+                black = v
+            if cum >= total * wp_pct / 100.0:
+                white = v
+                break
+        black = 0 if black is None else black
+        white = 255 if white is None else white
+        if white <= black:
+            white = black
+        levels.append({"black": black, "white": white})
+        if black == white or (black, white) == (0, 255):
+            luts.append(list(range(256)))  # identity: uniform or normalized
+        else:
+            luts.append([max(0, min(255, round((v - black) * 255 / max(1, white - black))))
+                         for v in range(256)])
+    details["levels"] = levels if bands > 1 else levels[0]
+    if all(lut == list(range(256)) for lut in luts):
+        ops_applied.append("levels:no-op")
+    else:
+        flat = [v for lut in luts for v in lut]
+        img = img.point(flat)
+        ops_applied.append("levels")
+    return img, ops_applied, details
+
+
+def enhance(book: dict, archive: Path, out_dir: Path) -> dict:
+    """Apply the [enhance] profile per page; write enhanced pages + manifest.
+
+    Streams one raster at a time (book-scale safe). The enhanced dir is a
+    first-class archive: manifest mirrors the archive schema (source +
+    render copied through, per-page sha256 of the enhanced raster), so
+    `verify` and `assemble --archive build/enhance` consume it unchanged.
+    Per-page ops + diffs are recorded in the manifest.
+    """
+    from PIL import Image
+
+    archive = Path(archive)
+    src_manifest = json.loads((archive / "manifest.json").read_text())
+    dpi = int(src_manifest["render"]["dpi"])
+    cfg = dict(ENHANCE_DEFAULTS)
+    user = book.get("enhance", {}) or {}
+    for k, v in user.items():
+        if isinstance(v, dict) and k in cfg:
+            cfg[k] = {**cfg[k], **v}
+        else:
+            cfg[k] = v
+
+    out = out_dir / "enhance"
+    out.mkdir(parents=True, exist_ok=True)
+    pages_meta = []
+    touched = 0
+    near_noop = 0
+    for entry in src_manifest["pages"]:
+        src = archive / entry["file"]
+        img = Image.open(src)
+        img.load()
+        try:
+            res, applied, details = enhance_page(img, cfg, dpi)
+            res.save(out / entry["file"])
+        finally:
+            img.close()
+        sha = sha256_file(out / entry["file"])
+        e = {"page": entry["page"], "file": entry["file"],
+             "sha256": sha, "size_bytes": (out / entry["file"]).stat().st_size,
+             "ops": applied, "details": details,
+             "source_sha256": entry["sha256"]}
+        if applied == ["levels:no-op"] and details["border_px"] is None:
+            near_noop += 1
+        else:
+            touched += 1
+        pages_meta.append(e)
+
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "stage": "enhance",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "book": book.get("book", {}).get("title", ""),
+        "source": src_manifest.get("source", {}),
+        "render": src_manifest.get("render", {}),
+        "enhance": {"cfg": cfg, "pages": len(pages_meta),
+                    "touched_pages": touched, "near_noop_pages": near_noop},
+        "pages": pages_meta,
+    }
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
+    return manifest
+
+
 def build_order(book: dict, archive: Path, order_path: Path | None = None) -> dict:
     """Validate archive pages against the manifest and write order.json."""
     archive = Path(archive)
@@ -654,6 +787,11 @@ def main(argv=None) -> int:
             raise SystemExit("no archive: pass --archive or set [source] archive in book.toml")
         return book, Path(archive).expanduser()
 
+    p_enh = sub.add_parser("enhance", help="apply [enhance] profile ops; enhanced pages + manifest")
+    p_enh.add_argument("--book", type=Path, default=Path("book.toml"))
+    p_enh.add_argument("--archive", type=Path, default=None)
+    p_enh.add_argument("--out", type=Path, default=Path("build"))
+
     p_asm = sub.add_parser("assemble", help="validate archive pages and build order.json")
     p_asm.add_argument("--book", type=Path, default=Path("book.toml"))
     p_asm.add_argument("--archive", type=Path, default=None)
@@ -679,6 +817,13 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "verify":
         return verify(args.out_dir)
+    if args.cmd == "enhance":
+        book, archive = _book_and_archive(args)
+        man = enhance(book, archive, args.out)
+        e = man["enhance"]
+        print(f"enhanced {e['pages']} pages -> {args.out / 'enhance'} "
+              f"(touched {e['touched_pages']}, near-no-op {e['near_noop_pages']})")
+        return 0
     if args.cmd == "assemble":
         book, archive = _book_and_archive(args)
         order = build_order(book, archive, args.out / "order.json")
