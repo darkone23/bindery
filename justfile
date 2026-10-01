@@ -111,6 +111,21 @@ push:
     git push origin main
     git push mirror main
 
+# --- M4 typeset supplement (HOL-259) -----------------------------------------
+
+# M4a: re-harvest the Uttara e-text (sargas 42-111) from ramayana.info
+# (board-directed source) into dataset/uttara-eText-ramayana-info.json.
+# Idempotent; network needed.
+uttara-eText:
+    nix develop -c python3 fetch_uttara_etext.py --out dataset/uttara-eText-ramayana-info.json
+
+# M4a: close the dataset's field gaps — devanagari from the site's alt
+# rendering, IAST generated from Devanagari, translations lifted from the
+# Gita Press archive scans (printed translation the fascicle continues).
+# Writes dataset/uttara-eText-QC.md; needs tesseract (devenv shell).
+uttara-gapfill:
+    devenv shell -- python3 fill_uttara_gaps.py --archive archive
+
 # fetch the source PDF into dataset/ (public URL, no auth; run once)
 dataset-fetch:
     mkdir -p dataset

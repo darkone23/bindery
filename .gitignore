@@ -8,3 +8,8 @@ dataset/
 archive/
 scratch/
 build/
+# committed M4a e-text data (the 9MB source PDF stays ignored)
+!dataset/uttara-eText-ramayana-info.json
+!dataset/uttara-sarga-pages.json
+!dataset/uttara-eText-QC.md
+!dataset/uttara-eText-PROVENANCE.md

@@ -40,8 +40,14 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   supplement renders the ToC only; preface/errata stay one config flip
   away). `just supplement` / `just impose --full` builds it. The
   full-volume profile remains available in code (full mode).
-- Next: M4 splice of Tommy's scans
-  (see the plan).
+- **M4 — typeset supplement** (board pivot, plan rev 4): the scanned
+  supplement is superseded; the deliverable is a typeset fascicle of
+  Uttara-kanda sargas 42–111 mirroring the 1970s typesetting. Sanskrit +
+  English text comes from the harvested e-text
+  (`dataset/uttara-eText-ramayana-info.json`, 1668 verses, board-directed
+  source): `just uttara-eText` re-harvests it, `just uttara-gapfill`
+  closes field gaps (alt-rendering devanagari, generated IAST, Gita Press
+  scan-OCR translations) and writes the QC report.
 
 ## Interface
 
@@ -63,6 +69,8 @@ just assemble         # book.toml slice -> build/order.json (manifest-validated)
 just trim             # crop to the trim profile -> build/trim/ + trim.json
 just impose           # duplex Letter imposition -> build/press.pdf + proof
 just proof            # the full M1 chain
+just uttara-eText     # M4a: harvest Uttara 42-111 e-text from ramayana.info -> dataset/
+just uttara-gapfill   # M4a: close dataset field gaps (alt/IAST/scan-OCR) + QC report
 ```
 
 ## Layout
