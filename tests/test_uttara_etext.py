@@ -59,6 +59,31 @@ def test_parse_sarga_extracts_and_strips(fetch_mod):
     assert v["explanation"] is None
 
 
+def test_parse_sarga_strips_rsc_seams(fetch_mod):
+    """Next.js stream seams inside a verse object must vanish, and any
+    residual seam junk fails loudly rather than reaching the dataset.
+    The real seam split a key name mid-word (text_devanagari_a|lt)."""
+    seam = '"])</script><script>self.__next_f.push([1,"'
+    seamed = PARSE_FIXTURE.replace(
+        '\\"text_devanagari_alt\\":',
+        '\\"text_devanagari_a' + seam + 'lt\\":')
+    verses = fetch_mod.parse_sarga(seamed, 9)
+    v = verses[1]
+    assert "__next_f" not in (v["text_devanagari"] or "")
+    assert (v["text_devanagari"] or "").endswith("।। 7.9.1 ।।")
+
+
+def test_parse_sarga_unescapes_quotes_and_math_markers(fetch_mod):
+    raw = PARSE_FIXTURE.replace(
+        '\\"translation\\":\\"Then, as the lord of Brahmans went...\\"',
+        '\\"translation\\":\\"He said, \\\\\\\\\\"O lord\\\\\\\\.\\\\( 3\\\\) '
+        'and went\\\\\\", more\\",\\"')
+    verses = fetch_mod.parse_sarga(raw, 9)
+    tr = verses[1]["translation"]
+    assert chr(92) not in tr
+    assert '( 3)' in tr or '(3)' in tr
+
+
 def test_parse_sarga_strips_danda_padded_markers(fetch_mod):
     raw = PARSE_FIXTURE.replace(
         '\\"number\\":2,', '\\"number\\":2,').replace(
@@ -156,7 +181,7 @@ with offerings. (12)
 def test_dataset_complete(data):
     assert set(data.keys()) == {str(s) for s in range(42, 112)}
     total = sum(len(v) for v in data.values())
-    assert total == 1668
+    assert total == 1672
     incomplete = [(s, n) for s, vv in data.items() for n, f in vv.items()
                   if not (f.get("text_devanagari") and f.get("transliteration")
                           and f.get("translation"))]
@@ -168,6 +193,16 @@ def test_dataset_no_colophons(data):
         for f in verses.values():
             deva = f.get("text_devanagari") or ""
             assert not re.sub(r"^[।॥\s]+", "", deva).startswith("इत्यार्षे")
+
+
+def test_dataset_no_rsc_pollution(data):
+    """RSC seam junk and double-escaped quotes must never reach the data."""
+    for verses in data.values():
+        for f in verses.values():
+            for v in f.values():
+                if v:
+                    assert "__next_f" not in v and "</script" not in v
+                    assert chr(92) + chr(34) not in v  # literal backslash-quote
 
 
 def test_sarga_page_map(data_path=REPO / "dataset" / "uttara-sarga-pages.json"):

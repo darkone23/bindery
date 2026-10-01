@@ -58,6 +58,27 @@
         # in the stage's devenv (devenv.nix / devenv.yaml, `devenv shell`) —
         # the impure/unfree business lives there, not in this flake, which
         # stays unfree-clean.
+        # M4b typeset stage (HOL-259): WeasyPrint (Pango shapes Devanagari)
+        # + Lohit Devanagari; FONTCONFIG_FILE is set declaratively — bare
+        # nix shells do not scan host fonts (spike lesson, run 3).
+        typeset = pkgs.mkShell {
+          packages = [
+            (pkgs.python3.withPackages (ps: [
+              ps.weasyprint
+              ps.pytest
+            ]))
+            pkgs.lohit-fonts.devanagari
+            pkgs.dejavu_fonts
+            pkgs.poppler-utils
+            pkgs.just
+          ];
+          FONTCONFIG_FILE = pkgs.makeFontsConf {
+            fontDirectories = [
+              pkgs.lohit-fonts.devanagari
+              pkgs.dejavu_fonts
+            ];
+          };
+        };
       });
 
       checks = forAll (
@@ -68,6 +89,13 @@
             ps.reportlab
             ps.pillow
           ]);
+          typesetEnv = pkgs.python3.withPackages (ps: [
+            ps.weasyprint
+            ps.pytest
+          ]);
+          fontConf = pkgs.makeFontsConf {
+            fontDirectories = [ pkgs.lohit-fonts.devanagari pkgs.dejavu_fonts ];
+          };
         in
         {
           default = pkgs.runCommand "bindery-pytest"
@@ -84,6 +112,25 @@
               chmod -R u+w src
               cd src
               ${pytestEnv}/bin/pytest -q tests
+              touch $out
+            '';
+          # M4b typeset stage (HOL-259): render smoke through the real
+          # WeasyPrint -> raster -> manifest pipeline on the mini fixture.
+          typeset = pkgs.runCommand "bindery-typeset-pytest"
+            {
+              nativeBuildInputs = [
+                typesetEnv
+                pkgs.poppler-utils
+                pkgs.lohit-fonts.devanagari
+                pkgs.dejavu_fonts
+              ];
+              FONTCONFIG_FILE = fontConf;
+            }
+            ''
+              cp -r ${self} src
+              chmod -R u+w src
+              cd src
+              ${typesetEnv}/bin/pytest -q tests/test_uttara_typeset.py
               touch $out
             '';
         }

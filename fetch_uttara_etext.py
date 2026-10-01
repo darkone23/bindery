@@ -37,6 +37,16 @@ def fetch_sarga(sarga: int) -> str:
         return resp.read().decode("utf-8", "ignore")
 
 
+# Next.js streams the RSC payload in fragments; the seams sit INSIDE the
+# escaped JSON and must be removed before field extraction, else field
+# values swallow seam junk (caught by visual QC on the first render).
+RSC_SEAM = re.compile(r'"\]\)</script><script>self\.__next_f\.push\(\[1,"')
+
+
+def strip_rsc_seams(raw: str) -> str:
+    return RSC_SEAM.sub("", raw)
+
+
 def _field(blob: str, name: str, next_names: list[str]):
     start = blob.find(f'\\"{name}\\":')
     if start < 0:
@@ -53,11 +63,21 @@ def _field(blob: str, name: str, next_names: list[str]):
     val = blob[start:end]
     if val.endswith('\\"'):
         val = val[:-2]
-    return val.replace('\\"', '"')
+    # RSC double-escapes quotes inside values (\\\" -> \"): collapse any
+    # backslash runs preceding a quote down to the bare quote. The site
+    # also carries markdown artifacts — LaTeX-style inline-math verse
+    # markers "\\( 3\\)" and stray doubled backslashes; none of these are
+    # legitimate text, so backslashes go entirely.
+    val = re.sub(r"\\+(?=\")", "", val).replace('\\"', '"')
+    val = re.sub(r"\\+\(", "(", val)
+    val = re.sub(r"\\+\)", ")", val)
+    val = re.sub(r"\\+", "", val)
+    return val
 
 
 def parse_sarga(raw: str, sarga: int) -> dict[int, dict]:
     """Extract per-verse field dicts from one sarga page's RSC payload."""
+    raw = strip_rsc_seams(raw)
     verses: dict[int, dict] = {}
     for m in re.finditer(r'\{\\"shloka\\":\{(.*?)\}\}\]', raw, re.S):
         blob = m.group(1)
@@ -75,6 +95,11 @@ def parse_sarga(raw: str, sarga: int) -> dict[int, dict]:
         marker = re.sub(r"^[।॥\s]+", "", deva)
         if marker.startswith((COLOPHON_DEVA, KANDA_END_DEVA, DEDICATION_DEVA)):
             continue  # sarga/kanda markers, not verses
+        for fname, val in entry.items():
+            if val and ("__next_f" in val or "</script" in val):
+                raise SystemExit(
+                    f"sarga {sarga} verse {num.group(1)}: field {fname} "
+                    f"swallowed RSC seam junk (strip_rsc_seams gap?)")
         verses[int(num.group(1))] = entry
     return verses
 
