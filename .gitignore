@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .devenv/
-dataset/
+dataset/*
 archive/
 scratch/
 build/
