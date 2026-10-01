@@ -1,0 +1,30 @@
+# bindery book profile — M4 typeset fascicle (HOL-259 plan rev 4)
+# The fascicle replaces the scanned supplement (HOL-256, superseded):
+# Uttara-kanda sargas 42-111, TYPESET to mirror the 1970s edition,
+# rendered by uttara_typeset.py into build/typeset (ingest-schema
+# raster archive). Pages flow through the unchanged trim -> impose
+# chain; [order] lives in build/order.json (written by the typeset
+# stage, pages-mode schema).
+
+[book]
+title = "Valmiki-Ramayana — Uttara-kanda fascicle (sargas 42-111, typeset)"
+
+[source]
+archive = "build/typeset"
+
+[trim]
+# the typeset canvas IS the final page (444 x 667.44 pt, the volume
+# trim the M3 supplement was imposed at) — nothing to crop.
+inside_pt = 0.0
+outside_pt = 0.0
+top_pt = 0.0
+bottom_pt = 0.0
+inside_growth_per_sheet_pt = 0.0
+
+[impose]
+paper = "letter"          # US Letter portrait, horizontal fold (M1: letter only)
+signature_pages = 16      # ~75 fascicle pages -> ~5-6 signatures
+slot_margin_pt = 14.0
+caliper_mm = 0.10
+marks = true
+proof_dpi = 150
