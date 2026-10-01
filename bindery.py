@@ -938,14 +938,24 @@ def build_order(book: dict, archive: Path, order_path: Path | None = None) -> di
                     f"sarga map kanda {kanda} lacks sargas "
                     f"{s_first}-{s_last}: {have}")
             pos = int(sel[0]["start_page"])
+            prev_end = None
             for s in sel:
-                if int(s["start_page"]) != pos:
+                sp = int(s["start_page"])
+                if prev_end is None:
+                    if sp != pos:
+                        raise SystemExit(
+                            f"sarga range does not start at its first "
+                            f"sarga's page: sarga {s['sarga']} starts at "
+                            f"{sp}, expected {pos}")
+                elif sp != prev_end and sp != prev_end + 1:
+                    # shared heading pages: sarga N's range ends on the
+                    # page where N+1's heading sits — a one-page overlap
                     raise SystemExit(
                         f"sarga range does not tile archive pages: sarga "
-                        f"{s['sarga']} starts at {s['start_page']}, "
-                        f"expected {pos}")
-                pos = int(s["end_page"]) + 1
-            first, last = int(sel[0]["start_page"]), int(sel[-1]["end_page"])
+                        f"{s['sarga']} starts at {sp}, expected "
+                        f"{prev_end} or {prev_end + 1}")
+                prev_end = int(s["end_page"])
+            first, last = int(sel[0]["start_page"]), prev_end
 
         aman, ap_dir, apath = _apparatus_or_fail()
         pages = _apparatus_entries(aman, ap_dir, kinds)
@@ -1232,7 +1242,13 @@ def impose(book: dict, out_dir: Path) -> dict:
         img = Image.open(out_dir / "trim" / p["out_file"])
         tw, th = round(pw * pf), round(ph * pf)
         small = out_dir / "trim" / (p["out_file"].replace(".png", f".proof{proof_dpi}.png"))
-        if not small.is_file() or Image.open(small).size != (tw, th):
+        need = True
+        if small.is_file():
+            try:
+                need = Image.open(small).size != (tw, th)
+            except Exception:
+                need = True  # truncated/interrupted cache file: regenerate
+        if need:
             img.resize((tw, th), Image.LANCZOS).save(small)
         pc.drawImage(str(small), 0, 0, width=pw, height=ph)
         pc.showPage()
