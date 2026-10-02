@@ -35,13 +35,29 @@ matching the issue example. Confirm the name with the board if the
 family should differ.
 
 From the laptop, in the chipnet repo (the sanctioned NAS escape hatch;
-plain `zfs create` — no destructive ops, idempotence-check first):
+plain `zfs create` — no destructive ops, idempotence-check first). The
+`nas` recipe substitutes its argument **textually**, so run each zfs op
+as its own invocation — `&&` inside the quoted command is eaten by the
+*local* shell, not the NAS (verified 2026-10-01):
 
 ```bash
-just infra nas "zfs list -H -o name flash/household 2>/dev/null || echo ABSENT"
-just infra nas "zfs create -o quota=64G flash/household/bindery && zfs create flash/household/bindery/m3"
-just infra nas "chown -R orpheus /mnt/flash/household/bindery && zfs list -o name,used,quota flash/household/bindery"
+just infra nas "zfs list -H -o name flash/household"
+just infra nas "zfs create -o quota=64G flash/household/bindery"
+just infra nas "zfs create flash/household/bindery/m3"
+just infra nas "chown -R orpheus /mnt/flash/household/bindery"
+just infra nas "zfs list -o name,used,quota flash/household/bindery"
 ```
+
+Two laptop-side gotchas hit on the first real run (2026-10-01):
+
+- `truenas.local` did not resolve on the laptop — pass the LAN IP
+  explicitly: `HOMEINFRA_NAS_HOST=192.168.8.220 just infra nas …`
+  (and likewise `just storage-sync "orpheus@192.168.8.220:/mnt/…"`,
+  since the recipe default embeds the host too).
+- secretspec enforces `--reason` for agent sessions; a failing run can
+  masquerade as empty NAS output (e.g. an `|| echo ABSENT` pre-check
+  firing on the *policy* error, not the NAS answer). Trust output only
+  from a run that carried its reason.
 
 (GUI alternative: Datasets → Add, pool `flash`, name `household/bindery`,
 quota 64G; then Add `m3` child. Ownership fix still needs the shell.)
@@ -107,63 +123,137 @@ cross-checks in `scripts/storage-spot-check.py` output):
 | 2259 | page-2259.png | 462520bf9edb26de2775fbd18a10c0a15d88b943491003b74598f2b74d385eab | 1441101 |
 | 2303 | page-2303.png | c5c07b5e3b6f09e985a2744dd26ee1d7138ef12e3ffdd7d4881b3b1484d7676e | 681915 |
 
-## §4 borg backup layer for the dataset (board decision + one-time wiring)
+## §4 borg backup layer for the dataset (HOL-261 — board decision + one-time wiring)
 
 Household policy (per the orion-borg role, HOL-145): borgmatic →
 **BorgBase**, retention **14 daily / 8 weekly / 6 monthly**. The borg
 target cannot be orion (no route to the NAS), so the stanza runs **on the
-NAS** against the dataset. Board-gated because it installs tooling on the
-hand-managed NAS and adds a small BorgBase repo (spend).
+NAS** against the dataset. Board-gated: it installs tooling on the
+hand-managed NAS and adds a BorgBase repo (account: Medium 1 TB plan,
+~51 GB used of 1000 GB included — a ~4.2 GB deduped repo is $0 marginal;
+repo still quota-capped at 16 GB so growth fails loudly).
 
-One-time (laptop/board):
+Two sides, two owners:
 
-1. Create a BorgBase repo (e.g. `bindery-archive`) — the BorgBase admin
-   key exists as the Paperclip secret `BORGBASE_ADMIN_KEY`.
-2. Generate a dedicated keypair on the NAS and attach the public half to
-   the repo (BorgBase UI, full access — prune needs delete).
-3. Install borg + borgmatic on the NAS (TrueNAS SCALE: `pip install
-   borgmatic` in a venv under `/root/.local/bindery-borg`, or nixpkgs
-   static binaries — pick one and record it).
+### Agent side — BorgBase (SRE seat; BORGBASE_ADMIN_KEY is a Paperclip secret)
 
-`/root/.config/borgmatic/bindery.yaml` (validate:
-`validate-borgmatic-config -c …`; borgmatic 2.x schema):
+`scripts/borgbase-repo-setup.py` (stdlib-only, idempotent, dry by
+default — every action re-checks live state first):
 
-```yaml
-source_directories:
-    - /mnt/flash/household/bindery
-repositories:
-    - path: ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo
-      label: bindery-borgbase
-compression: zstd,15
-archive_name_format: "bindery-{now:%Y%m%d-%H%M%S}"
-retention:
-    keep_daily: 14
-    keep_weekly: 8
-    keep_monthly: 6
-    prefix: "bindery-"
-storage:
-    ssh_command: ssh -i /root/.ssh/borgbase_bindery_ed25519 -o IdentitiesOnly=yes
-    encryption_passcommand: cat /root/.config/borgmatic/bindery-passphrase
+```bash
+python3 scripts/borgbase-repo-setup.py status        # read-only
+python3 scripts/borgbase-repo-setup.py create-repo   # creates bindery-archive (us, 16G cap)
 ```
 
-Passphrase: generated on-box, 0600, never logged; `borg key export` to
-paper after the first archive (same escrow posture as the orion repos).
+One-time verification (server-side init state is confirmed, not assumed):
+generate a throwaway probe keypair, register + attach it, probe, remove:
 
-Schedule (TrueNAS System → Advanced → Cron, daily 04:45 — after the
-03:30 BorgBase run on orion, staggered):
+```bash
+ssh-keygen -q -t ed25519 -N '' -C bindery-probe-tmp -f /tmp/bindery-probe-key
+python3 scripts/borgbase-repo-setup.py attach-key --name bindery-probe-tmp \
+    --pub-file /tmp/bindery-probe-key.pub
+python3 scripts/borgbase-repo-setup.py probe --key-file /tmp/bindery-probe-key \
+    --borg-bin ~/borg/nix-profile/bin/borg     # borg 1.4.1 lives here on the paperclip VM
+python3 scripts/borgbase-repo-setup.py detach-key --name bindery-probe-tmp
+shred -u /tmp/bindery-probe-key*              # private half never leaves this host
+```
+
+Then bake the real repo id into `scripts/bindery-borgmatic.yaml` (commit),
+and record the repo facts in this section. The repo id is not a secret
+(the orion repo facts are committed the same way in chipnet).
+
+### NAS side — laptop hands (chipnet escape hatch; one op per invocation)
+
+The `just infra nas` recipe substitutes its argument textually — shell
+metacharacters (`&&`, `|`, `>`) break out and run LOCALLY (scripts
+LEARNINGS, 2026-10-01) — so all shell complexity lives in a committed
+script executed on the box, and file content rides plain scp (the same
+transport `just storage-sync` already sanctions). Every recipe invocation
+carries `SECRETSPEC_REASON` (agent policy) and the LAN host override:
+
+```bash
+# 1. keypair on the NAS (idempotent check first; rc≠0/traceback = absent,
+#    proceed — the recipe fails loudly, it never reports silent absence):
+cd ~/src/chipnet
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "test -f /root/.ssh/borgbase_bindery_ed25519.pub"
+
+# 2. install the runbook's two files from the bindery checkout, then run
+#    the setup script (keypair+passphrase on-box, config install, venv,
+#    schema check, first connection — see the script; idempotent):
+cd ~/src/bindery
+scp -i ~/.ssh/orpheus scripts/bindery-borgmatic.yaml \
+    orpheus@192.168.8.220:/tmp/bindery-borgmatic.yaml
+scp -i ~/.ssh/orpheus scripts/bindery-borg-nas-setup.sh \
+    orpheus@192.168.8.220:/tmp/bindery-borg-nas-setup.sh
+cd ~/src/chipnet
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "bash /tmp/bindery-borg-nas-setup.sh <REPO_ID>"
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "rm -f /tmp/bindery-borg-nas-setup.sh"
+
+# 3. print the public half → paste into the HOL-261 thread; SRE attaches
+#    it to the BorgBase repo (attach-key --name bindery-nas --pub-file …):
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "cat /root/.ssh/borgbase_bindery_ed25519.pub"
+```
+
+The setup script (committed, reviewable — the PR digest is the review):
+generates the keypair + passphrase **on-box** (0600, never echoed),
+installs the config, builds the borg+borgmatic venv
+(`/root/.local/bindery-borg`, pip — TrueNAS SCALE python3), validates the
+config against borgmatic 2.x, and makes the first connection to the
+server-side-initialized repo — classifying the init state itself:
+
+- `borg list` with an empty passphrase succeeds → repo was
+  server-side-initialized with no password → it sets the on-box
+  passphrase via `borg key change-passphrase`
+  (`BORG_PASSPHRASE='' BORG_NEW_PASSPHRASE="$(cat …)"`).
+- `borg list` says the repo is not initialized → it runs
+  `borg init --encryption repokey` with the on-box passphrase
+  (`BORG_NEW_PASSPHRASE`).
+
+### First backup + evidence (laptop hands)
+
+```bash
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "/root/.local/bindery-borg/bin/borgmatic -c /root/.config/borgmatic/bindery.yaml create prune compact"
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "/root/.local/bindery-borg/bin/borgmatic -c /root/.config/borgmatic/bindery.yaml list"
+```
+
+Paste the archive listing into the HOL-261 thread (acceptance evidence),
+then escrow the repo key to paper
+(`borg key export --paper`, from the venv borg with
+`BORG_PASSCOMMAND=cat /root/.config/borgmatic/bindery-passphrase`).
+
+### Schedule (NAS, one-time)
+
+TrueNAS System → Advanced → Cron, daily 04:45 (after orion's 03:30
+BorgBase run, staggered):
 
 ```
 45 4 * * * root /root/.local/bindery-borg/bin/borgmatic -c /root/.config/borgmatic/bindery.yaml create prune compact
 ```
 
-First run + evidence:
+### Rollback (all add-only, nothing destructive)
 
-```bash
-borgmatic -c /root/.config/borgmatic/bindery.yaml create prune compact
-BORG_PASSCOMMAND="cat /root/.config/borgmatic/bindery-passphrase" \
-BORG_RSH="ssh -i /root/.ssh/borgbase_bindery_ed25519 -o IdentitiesOnly=yes" \
-  borg list ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo
-```
+Delete the BorgBase repo + key entry (BorgBase UI or
+`borgbase-repo-setup.py detach-key` + repo delete in the UI); on the NAS
+remove `/root/.config/borgmatic/bindery.yaml`,
+`/root/.config/borgmatic/bindery-passphrase`,
+`/root/.ssh/borgbase_bindery_ed25519*`, `/root/.local/bindery-borg`, and
+the cron line. The dataset itself is untouched.
+
+### Repo facts (fill in at wiring time)
+
+- BorgBase repo `bindery-archive`, id `<REPO_ID>`
+  (`ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo`), region us,
+  quota 16 GB enabled, borg1.
+- NAS key `bindery-nas` attached with full access (prune needs delete
+  rights); on-NAS keypair `/root/.ssh/borgbase_bindery_ed25519`,
+  passphrase `/root/.config/borgmatic/bindery-passphrase` (0600, on-box
+  only).
 
 ## Provenance
 
