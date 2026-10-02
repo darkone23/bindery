@@ -13,3 +13,7 @@ build/
 !dataset/uttara-sarga-pages.json
 !dataset/uttara-eText-QC.md
 !dataset/uttara-eText-PROVENANCE.md
+# committed M5 English-extraction datasets (text bodies stay ignored;
+# staging -> TrueNAS per docs/ENGLISH-EXTRACTION.md)
+!dataset/toc-gita-press-english.json
+!dataset/english-extraction-QC.md
