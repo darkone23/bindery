@@ -175,3 +175,14 @@ m5-stage OUT="build/english" ROOT="$HOME/bindery-m5-storage/english" PDF="datase
     COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     SHA="$(sha256sum {{PDF}} | cut -d' ' -f1)"
     nix develop -c python3 scripts/m5_manifest.py {{ROOT}} "$COMMIT" "$SHA"
+
+# HOL-263: validate dataset/correspondences/*.json against the
+# correspondences/v1 schema (enum/id/sarga hygiene; see dataset/correspondences/README.md)
+correspondences-validate:
+    python3 scripts/validate_correspondences.py
+
+# HOL-263: rebuild dream-of-ravan.json from the raw episode inventory
+# (run after editing scripts/build_dor_dataset.py corrections)
+correspondences-build:
+    python3 scripts/build_dor_dataset.py
+    python3 scripts/validate_correspondences.py

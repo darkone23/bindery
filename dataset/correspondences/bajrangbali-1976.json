@@ -1,0 +1,172 @@
+{
+ "schema": "correspondences/v1",
+ "dataset": "bajrangbali-1976",
+ "description": "Ramayana correspondences in the Hindi mythological film 'Bajrangbali' (1976, dir./prod. Chandrakant, Dara Singh as Hanuman; 170 min; music Kalyanji-Anandji, lyrics Kavi Pradeep). CAPTION PASS DONE (2026-10-02): scenes located against the film's Hindi auto-caption track (ASR, mediocre on 1970s devotional Hindi) — locators are scene-level windows; the cleaned transcript is committed as the source-of-record (bajrangbali-1976-transcript.jsonl) because YouTube regenerates auto-captions over time. Known caption gaps: the 01:40–02:07 climax stretch is song-heavy and ASR yields no name hits there, so the Ravana-vadha scene itself is not caption-locatable; Sulochana is never spelled by ASR. Anchors stay at kanda/sarga level per board choice.",
+ "target": {
+  "work": "Valmiki-Ramayana",
+  "numbering": "gita-press-vulgate",
+  "numbering_notes": "kanda/sarga in the Gita Press 1970s reprint numbering (= ramayana.info numbering); GP scans are the bindery archive."
+ },
+ "sources": [
+  {
+   "id": "baj",
+   "title": "Bajrangbali",
+   "source_type": "film",
+   "publication": "Hindi mythological film, dir./prod. Chandrakant, released 22 September 1976, 170 min. IMDb tt0157845.",
+   "url": "https://www.youtube.com/watch?v=VPA1UVOtLIg",
+   "locator_type": "timestamp",
+   "notes": "Watch copy = board-provided YouTube upload. Scene evidence: Wikipedia cast list + IMDb outline (initial scaffold) then caption pass on the hi-orig ASR track (yt-dlp 2026.08.19, fetched 2026-10-02). Locator precision ±5s."
+  }
+ ],
+ "entries": [
+  {
+   "id": "baj-001",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 00:04:07–00:12:43",
+   "quote": "तुम्हारी माता अंजनी पाठ देखती हूं (00:10:32)",
+   "episode": "Hanuman's birth and childhood: son of Anjani (Durga Khote) and Kesari, with Vayu as spiritual father; child Hanuman's leap at the rising sun and the Indra-vajra jaw wound.",
+   "refs": [
+    {
+     "kanda": "uttara",
+     "sarga": "34-36",
+     "confidence": "medium"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: cast credit Durga Khote as 'Devi Maa Anjani'; IMDb 'Vanar family tale: Pawan and Anjani's son'. The leap at the sun IS Valmiki (Uttara 34-36); the swallowing-the-sun variant is later vernacular — the film follows the vernacular telling per genre convention. Birth-of-Hanuman content absent from Valmiki's first six kandas; hence uttara anchor. Captions: Anjani addressed at 00:10:32; the childhood/gurudakshina thread 00:10:26–00:12:43; Anjani first named 00:04:07."
+  },
+  {
+   "id": "baj-002",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 00:22:35",
+   "quote": "शबरी मां तुम्हारी बहू सीता को कोई / अनाचारी पंचवटी से उठा लेगा (00:22:35)",
+   "episode": "Shabari's hermitage: the aged ascetic woman (Dulari) receives Rama and offers tasted fruit.",
+   "refs": [
+    {
+     "kanda": "aranya",
+     "sarga": "74-78",
+     "confidence": "medium"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: cast credit Dulari as Shabari. The tasted-fruit detail beloved of the film tradition is aranya 74-78 (GP numbering; content-check pending). Captions: single explicit Shabari naming at 00:22:35, with a Panchavati-abduction reference in the same breath — the film compresses the forest sequence here; single-line evidence, scene match plausible not certain."
+  },
+  {
+   "id": "baj-003",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 00:57:27–01:00:06",
+   "quote": "जिसकी पूंछ में आग लगाकर छोड़ दिया जाए (01:00:03)",
+   "episode": "Hanuman's tail set on fire by Ravana's guards (Moolchand credited as 'Ravan's guard, setting Bajrangbali's tail on fire'), followed by Hanuman burning Lanka.",
+   "refs": [
+    {
+     "kanda": "sundara",
+     "sarga": "53-54",
+     "confidence": "high",
+     "verified_against": "ramayana.info sundara/53,54 (tail set fire to it; burning mansions)"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: explicit cast credit. Ramayana anchor content-verified; in GP numbering the tail-fire + burning of the city fall in sundara 53-54. Captions: Hanuman in Ravana's court ~00:57:27; explicit tail-fire dialogue 01:00:00–01:00:06."
+  },
+  {
+   "id": "baj-004",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 01:12:47",
+   "quote": "कुंभकरण कुंभकरण (01:12:47)",
+   "episode": "Kumbhakarna (Asit Sen) awakened, rampages, and falls to Rama.",
+   "refs": [
+    {
+     "kanda": "yuddha",
+     "sarga": "59-71",
+     "confidence": "medium"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: cast credit Asit Sen as Kumbhakarna. Slain in GP yuddha 67-71 (content-check pending). Captions: name invoked repeatedly at 01:12:47 (the waking call), immediately after a Meghnad mention at 01:12:33 — the war-council/awakening sequence."
+  },
+  {
+   "id": "baj-005",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 01:12:33–01:29:40",
+   "quote": "लक्ष्मण की मृत्यु हुई हमारे इंद्रजीत की श्रद्धांजलि (01:29:37)",
+   "episode": "Meghnath/Indrajit (Randhawa) in battle with the serpentine noose and astras; his queen Sulochana (Jayshree Gadkar); Indrajit slain by Lakshmana.",
+   "refs": [
+    {
+     "kanda": "yuddha",
+     "sarga": "47-49",
+     "confidence": "medium"
+    },
+    {
+     "kanda": "yuddha",
+     "sarga": "87-90",
+     "confidence": "high",
+     "verified_against": "ramayana.info yuddha/90 (Indrajit slain)"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: cast credits Randhawa as 'Rajkumar Meghnath', Jayshree Gadkar as 'Rajkumari Sulochana'. The nagapasha binding is GP yuddha 47-49; the slaying is 87-90 (verified). Sulochana and the widow's grief thread are NOT in Valmiki — vernacular (Rama-charit-manas and later) material; her scenes are the film's own interpolation beyond Valmiki though Indrajit himself is Valmiki's, hence beyond_valmiki=false for the entry with the Sulochana caveat here. Captions: Meghnad named 01:12:33; the shakti-strike aftermath 'Lakshmana has died by our Indrajit's...' 01:29:37. Sulochana never spelled by ASR (song scenes) — her thread rests on the cast credit."
+  },
+  {
+   "id": "baj-006",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 01:29:25–01:30:35",
+   "quote": "संजीवनी बूटी मिले / द्रोणाचल पर्वत पर है / सूर्योदय से पहले आ जानी चाहिए (01:29:25)",
+   "episode": "Ravana mortally wounds Lakshmana; Hanuman lifts the whole Sanjivani mountain (IMDb: 'brings forth the Sanjeevani herb, along with the entire mountain, and Laxman gets a second life').",
+   "refs": [
+    {
+     "kanda": "yuddha",
+     "sarga": "73-76",
+     "confidence": "high",
+     "verified_against": "scene detail (Dronachal mountain, before-sunrise deadline) matches the Valmiki episode; yuddha/90-adjacent Indrajit context verified at ramayana.info yuddha/90"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: IMDb plot outline. Valmiki has the wound (Indrajit's shakti/brahmastra) and the mountain brought whole (GP yuddha 73-76); the film's dramatic emphasis on Hanuman carrying the mountain matches the tradition. Content-check pending. Captions: dense scene 01:29:25–01:30:35 (10 hits) with the Dronachal + sunrise details — textbook match, hence high."
+  },
+  {
+   "id": "baj-007",
+   "source_id": "baj",
+   "kind": "scene",
+   "locator": "≈ 02:07:43–02:47:36 (dhobi + Luv-Kush; Ravana-vadha not caption-locatable)",
+   "quote": "धोबी के मुंह में कीड़े पड़े उसने / तो सीता जी को भी कलंक लगा दिया (02:07:43)",
+   "episode": "Ravana's fall with Vibhishana's help (IMDb: 'Ten-headed Ravan is killed with Vibhisan's [Ravana's brother's]...'), then — per cast — the Uttara-kanda coda: the dhobi's quarrel (Ram Mohan), Sita's banishment, and the Lava-Kusha boys (Ajay, Master Alankar) with the asvamedha horse.",
+   "refs": [
+    {
+     "kanda": "yuddha",
+     "sarga": "98-107",
+     "confidence": "medium",
+     "verified_against": "ramayana.info yuddha/106 (Ravana slain)"
+    },
+    {
+     "kanda": "uttara",
+     "sarga": "42-48",
+     "confidence": "low"
+    },
+    {
+     "kanda": "uttara",
+     "sarga": "various",
+     "confidence": "low"
+    }
+   ],
+   "beyond_valmiki": false,
+   "source_citation_in_text": null,
+   "notes": "Film evidence: IMDb outline + cast credits Ram Mohan as 'Dhobi, washerman', Ajay as Luv, Master Alankar as Kush. The dhobi slander and Sita's banishment = GP uttara 42-48 (the HOL-259 fascicle's own sargas; numbering verified there); the Lava-Kusha asvamedha recitation and battle sit in the uttara tail (GP numbering for those sargas pending a check — 'various'). Vibhishana's counsel is Valmiki (yuddha 6-19); the slaying is 98-107 (106 verified). Captions: dhobi slander 02:07:43–02:08:54 with the agni-pariksha reference at 02:08:39 ('even after the fire ordeal the people of Ayodhya…'); Shatrughna at 02:21:03 opens the asvamedha thread; the horse-confrontation 'क्या नाम है तुम्हारे पिता का' 02:47:33 + 'do not treat us as children' 02:47:36 = Luv-Kush vs the army. The Ravana-vadha scene sits in the 01:40–02:07 song-heavy stretch where ASR yields no name hits — scene present per cast/plot but not caption-locatable."
+  }
+ ],
+ "provenance": {
+  "inventory": "scene list from Wikipedia cast list + IMDb outline (2026-10-02); caption pass same day: hi-orig ASR track cleaned by scripts/build_baj_captions.py → bajrangbali-1976-transcript.jsonl (source-of-record; YouTube regenerates captions)",
+  "verification": "Ramayana anchors spot-checked against ramayana.info (GP-numbered) 2026-10-02; film scenes caption-located 2026-10-02 with the ASR-quality caveat in the dataset description; Ravana-vadha unlocated"
+ }
+}

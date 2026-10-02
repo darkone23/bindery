@@ -17,3 +17,5 @@ build/
 # staging -> TrueNAS per docs/ENGLISH-EXTRACTION.md)
 !dataset/toc-gita-press-english.json
 !dataset/english-extraction-QC.md
+# committed HOL-263 correspondences (datasets + raw inventory)
+!dataset/correspondences/
