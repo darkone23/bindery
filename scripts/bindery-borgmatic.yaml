@@ -1,0 +1,26 @@
+# bindery dataset → BorgBase, borgmatic 2.x schema (HOL-261 §4, docs/STORAGE.md §4).
+#
+# Installed on the TrueNAS box at /root/.config/borgmatic/bindery.yaml (0600)
+# by the §4 runbook (scp + `install`). The repo id below is the real BorgBase
+# repo id, baked after `scripts/borgbase-repo-setup.py create-repo` — not a
+# secret (the orion repo facts are committed the same way, chipnet orion-borg
+# README). The passphrase never lives in this file: it is generated on the
+# NAS at /root/.config/borgmatic/bindery-passphrase (0600) and referenced by
+# encryption_passcommand.
+#
+# BorgBase repos are server-side initialized (their API creates the repokey);
+# the client must NOT run `borg init` — see the §4 runbook for the resolved
+# first-connection step. Retention follows the household standard
+# (14 daily / 8 weekly / 6 monthly, same as orion-borg).
+source_directories:
+    - /mnt/flash/household/bindery
+repositories:
+    - path: ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo
+      label: bindery-borgbase
+ssh_command: ssh -i /root/.ssh/borgbase_bindery_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+encryption_passcommand: cat /root/.config/borgmatic/bindery-passphrase
+compression: zstd,15
+archive_name_format: bindery-{now:%Y%m%d-%H%M%S}
+keep_daily: 14
+keep_weekly: 8
+keep_monthly: 6
