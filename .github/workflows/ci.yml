@@ -1,0 +1,35 @@
+# bindery CI (HOL-262): nix build + the full pytest suite on every PR
+# and push to main. The flake's checks.* run pytest in a pure sandbox —
+# tests need only the committed fixtures (archive/ and the dataset PDF
+# are gitignored and never required), so no secrets and no large
+# artifacts are involved.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: nix flake check (packages + checks.* pytest suite)
+        run: nix flake check
+
+      - name: nix build (default package)
+        run: nix build .#default
+
+      - name: pytest via the repo devshell (matches just ingest-fixture)
+        run: nix develop --command python3 -m pytest -q tests
