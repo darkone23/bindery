@@ -208,9 +208,15 @@ HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
 
 The setup script (committed, reviewable — the PR digest is the review):
 generates the keypair + passphrase **on-box** (0600, never echoed),
-installs the config, builds the borg+borgmatic venv
-(`/root/.local/bindery-borg`, pip — TrueNAS SCALE python3), validates the
-config against borgmatic 2.x, and makes the first connection — the
+installs the config, builds the tooling (TrueNAS SCALE 25.04, recorded on
+HOL-261 2026-10-02 — the box blocks apt, borgbackup ships no PyPI wheels,
+and the PyInstaller ONEFILE borg binary self-extracts to /tmp which is
+mounted noexec): **uv** builds `/root/.local/bindery-borg` (venv without
+ensurepip) and installs borgmatic from wheels; **borg** is the official
+1.4.1 onedir bundle (glibc236 = Debian 12) extracted to
+`/root/.local/bindery-borg/borg-dir` and run in place. The script
+validates the config against borgmatic 2.x and makes the first
+connection — the
 2026-10-02 probe already resolved the init state (empty dir → **client
 `borg init`**), which is the script's step-6 branch: it probes with an
 empty passphrase first (defensive no-op branch kept: if a future repo
@@ -229,16 +235,25 @@ HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
 
 Paste the archive listing into the HOL-261 thread (acceptance evidence),
 then escrow the repo key to paper
-(`borg key export --paper`, from the venv borg with
-`BORG_PASSCOMMAND=cat /root/.config/borgmatic/bindery-passphrase`).
+(`borg key export --paper` from
+`/root/.local/bindery-borg/borg-dir/borg.exe` with
+`BORG_PASSCOMMAND=cat /root/.config/borgmatic/bindery-passphrase`;
+write the output to a 0600 file under /root and hand it to the board for
+printing — never paste the key material into the issue thread).
 
 ### Schedule (NAS, one-time)
 
 TrueNAS System → Advanced → Cron, daily 04:45 (after orion's 03:30
-BorgBase run, staggered):
+BorgBase run, staggered). **Installed 2026-10-02** (cronjob id 1):
+TrueNAS GUI cron jobs are scheduled by middlewared **in-process** — they
+never materialize as `/etc/cron.d` or crontab entries (cron.py `run()`;
+only the scrub/update system file is rendered via etc.py). Inspect with
+`midclt call cronjob.query`; runtime PATH comes from middlewared's env,
+so the setup script exposes the bundle borg at `/usr/local/bin/borg`
+(symlink) and the job command targets the venv borgmatic directly:
 
 ```
-45 4 * * * root /root/.local/bindery-borg/bin/borgmatic -c /root/.config/borgmatic/bindery.yaml create prune compact
+/root/.local/bindery-borg/bin/borgmatic -c /root/.config/borgmatic/bindery.yaml create prune compact
 ```
 
 ### Rollback (all add-only, nothing destructive)
@@ -247,8 +262,9 @@ Delete the BorgBase repo + key entry (BorgBase UI or
 `borgbase-repo-setup.py detach-key` + repo delete in the UI); on the NAS
 remove `/root/.config/borgmatic/bindery.yaml`,
 `/root/.config/borgmatic/bindery-passphrase`,
-`/root/.ssh/borgbase_bindery_ed25519*`, `/root/.local/bindery-borg`, and
-the cron line. The dataset itself is untouched.
+`/root/.ssh/borgbase_bindery_ed25519*`, `/root/.local/bindery-borg`,
+`/usr/local/bin/borg` (symlink), and delete the GUI cron job (id 1) in
+the UI. The dataset itself is untouched.
 
 ### Repo facts
 

@@ -22,7 +22,13 @@ KEY=/root/.ssh/borgbase_bindery_ed25519
 PASSFILE=/root/.config/borgmatic/bindery-passphrase
 CONFIG=/root/.config/borgmatic/bindery.yaml
 VENV=/root/.local/bindery-borg
-BORG="$VENV/bin/borg"
+# borg ships as a PyInstaller onedir bundle: the onefile variant extracts
+# its payload to /tmp, which TrueNAS mounts noexec ("failed to map segment"
+# at startup) — so we use the .tgz bundle and run it from /root (exec-safe
+# ZFS root). borgmatic shells out to `borg` via PATH; the cron line carries
+# a PATH prefix pointing at BORG_DIR (docs/STORAGE.md §4).
+BORG_DIR="$VENV/borg-dir"
+BORG="$BORG_DIR/borg.exe"
 BORGMATIC="$VENV/bin/borgmatic"
 
 echo "== 1/6 dedicated keypair"
@@ -62,13 +68,42 @@ else
 fi
 
 echo "== 4/6 borg + borgmatic venv ($VENV)"
-if [ -x "$BORGMATIC" ]; then
-    echo "   present: $("$BORGMATIC" --version 2>/dev/null | head -1)"
+if [ -x "$BORGMATIC" ] && [ -x "$BORG" ]; then
+    echo "   present: $("$BORG" --version | head -1) / $("$BORGMATIC" --version | head -1)"
 else
-    python3 -m venv "$VENV"
-    "$VENV/bin/pip" install --quiet --upgrade pip
-    "$VENV/bin/pip" install --quiet borgmatic
-    echo "   installed: $("$BORGMATIC" --version 2>/dev/null | head -1)"
+    # TrueNAS SCALE (Debian 12, glibc 2.36) blocks apt ("Package management
+    # tools are disabled on TrueNAS appliances"), borgbackup ships no PyPI
+    # wheels (sdist needs gcc/pkg-config), and the PyInstaller ONEFILE borg
+    # binary self-extracts to /tmp — mounted noexec on TrueNAS, so it dies
+    # with "libz.so.1: failed to map segment". Working route (empirically
+    # proven 2026-10-02, recorded on HOL-261; board direction: use uv):
+    #   - uv builds the venv without ensurepip; borgmatic installs from
+    #     wheels (pure python)
+    #   - borg 1.4.1 official onedir bundle (.tgz, glibc236 == Debian 12),
+    #     extracted UNDER /root (exec-safe ZFS), run in place
+    # Zero system footprint; uv is only needed at build/repair time.
+    UV=/root/.local/bin/uv
+    if [ -x "$UV" ]; then
+        echo "   present: $("$UV" --version)"
+    else
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "   installed: $("$UV" --version)"
+    fi
+    rm -rf "$VENV"
+    "$UV" venv --python "$(command -v python3)" "$VENV"
+    "$UV" pip install --python "$VENV/bin/python" borgmatic
+    curl -fsSL "https://github.com/borgbackup/borg/releases/download/1.4.1/borg-linux-glibc236.tgz" \
+        -o /tmp/bindery-borg-bundle.tgz
+    mkdir -p "$VENV"
+    tar xzf /tmp/bindery-borg-bundle.tgz -C "$VENV"
+    rm -f /tmp/bindery-borg-bundle.tgz
+    # borgmatic resolves `borg` via PATH (local_path='borg'); GUI cron jobs
+    # are scheduled by middlewared in-process (never rendered to cron.d —
+    # cron.py run()/etc.py), so PATH exposure must not rely on shell rc
+    # files or cron lines: one symlink in /usr/local/bin (on every
+    # standard PATH, incl. the middlewared scrub cron line).
+    ln -sf "$BORG" /usr/local/bin/borg
+    echo "   installed: $("$BORG" --version | head -1) / $("$BORGMATIC" --version | head -1)"
 fi
 
 echo "== 5/6 config schema check (borgmatic 2.x)"
