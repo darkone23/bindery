@@ -15,7 +15,7 @@
 source_directories:
     - /mnt/flash/household/bindery
 repositories:
-    - path: ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo
+    - path: ssh://uwiz8tuj@uwiz8tuj.repo.borgbase.com/./repo
       label: bindery-borgbase
 ssh_command: ssh -i /root/.ssh/borgbase_bindery_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
 encryption_passcommand: cat /root/.config/borgmatic/bindery-passphrase

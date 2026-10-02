@@ -7,14 +7,16 @@ account admin key from the BORGBASE_ADMIN_KEY env — the Paperclip secret
 printed; all mutations are idempotent (checked against live state first) so
 re-runs converge instead of stacking duplicates.
 
-BorgBase repos are created server-side initialized (their side sets the
-repokey encryption); the client NEVER runs `borg init` — it sets/uses the
-passphrase from the on-box file. `probe` classifies which state a fresh repo
-is in so the NAS-side runbook picks the right first step.
+BorgBase's server side creates only an EMPTY repo directory — `borg init`
+runs CLIENT-side (empirically verified 2026-10-02: `borg list` through a
+fresh repo answers "is not a valid repository", not an ssh auth error).
+The client sets/uses the passphrase from the on-box file; `probe`
+classifies which state a repo is in so the NAS-side runbook picks the
+right first step (borg init vs passphrase change).
 
 Actions:
   status      (default) read-only: plan/usage + the bindery-archive repo state
-  create-repo create `bindery-archive` (region us, quota 16 GB, borg1); no-op if present
+  create-repo create `bindery-archive` (region us, 16 GB cap, borg1); no-op if present
   attach-key  register a public SSH key (by name) and attach it to the repo full-access
   detach-key  remove a named key from the repo and delete its BorgBase entry
   probe       borg list through a local key file; classifies the repo's init/passphrase state
@@ -41,13 +43,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 API_URL = "https://api.borgbase.com/graphql"
 REPO_NAME = "bindery-archive"
-REPO_QUOTA_GB = 16  # dataset is quota-capped at 64G on the NAS; repo cap is a loud-failure guard
+REPO_QUOTA_MB = 16384  # 16 GB cap (BorgBase quota unit = MB); dataset is 64G-capped on the NAS
 
 
 class ApiError(RuntimeError):
@@ -112,7 +115,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
     print("repos:")
     for r in repos:
         size = r["currentUsage"] / 1024.0
-        cap = f" quota={r['quota']}GB" + ("" if r["quotaEnabled"] else " (disabled)") if r["quota"] else ""
+        cap = f" quota={r['quota']}MB" + ("" if r["quotaEnabled"] else " (disabled)") if r["quota"] else ""
         holders = ",".join(k["name"] for k in r["fullAccessKeyList"]) or "-"
         print(
             f"  {r['name']:<22} {size:8.2f} GB  {r['encryption']:<10} "
@@ -131,9 +134,14 @@ def cmd_create_repo(_args: argparse.Namespace) -> int:
         print(f"{REPO_NAME} already exists (id {repo['id']}) — no-op")
         print(f"repoPath: {repo['repoPath']}")
         return 0
+    # repoAdd requires >= 1 full-access key id (an empty list 400s: "Field
+    # 'id' expected a number but got ''"). The throwaway probe key is born
+    # with the repo, verifies the init state, and is removed by detach-key
+    # once the NAS key takes over.
+    key_id = add_key("bindery-probe-tmp", make_probe_key())
     result = gql(
         """mutation RepoAdd($name: String!, $region: String!, $quota: Int,
-              $quotaEnabled: Boolean, $fullAccessKeys: String!, $format: String) {
+              $quotaEnabled: Boolean, $fullAccessKeys: [String]!, $format: String) {
             repoAdd(name: $name, region: $region, quota: $quota,
               quotaEnabled: $quotaEnabled, fullAccessKeys: $fullAccessKeys,
               format: $format) {
@@ -142,19 +150,19 @@ def cmd_create_repo(_args: argparse.Namespace) -> int:
         {
             "name": REPO_NAME,
             "region": "us",
-            "quota": REPO_QUOTA_GB,
+            "quota": REPO_QUOTA_MB,
             "quotaEnabled": True,
-            "fullAccessKeys": "",
+            "fullAccessKeys": [str(key_id)],
             "format": "borg1",
         },
     )
     added = result["repoAdd"]["repoAdded"]
     print(
         f"created {added['name']} id {added['id']} (region {added['region']}, "
-        f"quota {added['quota']}GB, enabled={added['quotaEnabled']})"
+        f"quota {added['quota']}MB, enabled={added['quotaEnabled']})"
     )
     print(f"repoPath: {added['repoPath']}")
-    print("next: bake the id into scripts/bindery-borgmatic.yaml (commit), then the NAS runbook")
+    print("next: probe (throwaway key at /tmp/bindery-probe-tmp), bake the repo id, then the NAS runbook")
     return 0
 
 
@@ -192,11 +200,11 @@ def attach(key_id: int, key_name: str) -> None:
         print(f"key {key_name} already attached to {REPO_NAME} — no-op")
         return
     gql(
-        """mutation RepoEdit($id: String!, $fullAccessKeys: String!) {
+        """mutation RepoEdit($id: String!, $fullAccessKeys: [String]!) {
             repoEdit(id: $id, fullAccessKeys: $fullAccessKeys) {
               repoEdited { id }
             } }""",
-        {"id": repo["id"], "fullAccessKeys": ",".join(str(i) for i in remaining)},
+        {"id": repo["id"], "fullAccessKeys": [str(i) for i in remaining]},
     )
 
 
@@ -208,9 +216,11 @@ def cmd_detach_key(args: argparse.Namespace) -> int:
         current = [int(k["id"]) for k in repo["fullAccessKeyList"]]
         remaining = [i for i in current if i != int(key["id"])]
         gql(
-            """mutation RepoEdit($id: String!, $fullAccessKeys: String!) {
-                repoEdit(id: $id, fullAccessKeys: $fullAccessKeys) { ok } }""",
-            {"id": repo["id"], "fullAccessKeys": ",".join(str(i) for i in remaining)},
+            """mutation RepoEdit($id: String!, $fullAccessKeys: [String]!) {
+                repoEdit(id: $id, fullAccessKeys: $fullAccessKeys) {
+                  repoEdited { id fullAccessKeyList { id name } }
+                } }""",
+            {"id": repo["id"], "fullAccessKeys": [str(i) for i in remaining]},
         )
         print(f"key {args.name} detached from {REPO_NAME}")
     if key:
@@ -219,9 +229,33 @@ def cmd_detach_key(args: argparse.Namespace) -> int:
             {"id": str(key["id"])},
         )
         print(f"key entry {args.name} deleted")
+        # remove the stashed private half from create-repo, if any
+        stash = Path(tempfile.gettempdir()) / "bindery-probe-tmp"
+        stash.unlink(missing_ok=True)
+        Path(f"{stash}.pub").unlink(missing_ok=True)
     else:
         print(f"key {args.name} not registered — nothing to do")
     return 0
+
+
+def make_probe_key() -> str:
+    """Generate a throwaway keypair; return the public half. The private
+    half is stashed 0600 in the system temp dir for the probe run (removed
+    by detach-key, or by the operator's shred)."""
+    with tempfile.TemporaryDirectory(prefix="bindery-probe-") as tmp:
+        key_file = Path(tmp) / "probe-key"
+        subprocess.run(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "bindery-probe-tmp",
+             "-f", str(key_file)],
+            check=True,
+            capture_output=True,
+        )
+        pub = (Path(tmp) / "probe-key.pub").read_text().strip()
+        stash = Path(tempfile.gettempdir()) / "bindery-probe-tmp"
+        stash.write_text(key_file.read_text())
+        stash.chmod(0o600)
+        (Path(tempfile.gettempdir()) / "bindery-probe-tmp.pub").write_text(pub + "\n")
+    return pub
 
 
 def cmd_probe(args: argparse.Namespace) -> int:
@@ -249,15 +283,22 @@ def cmd_probe(args: argparse.Namespace) -> int:
             print(f"  {a}")
         return 0
     err = (proc.stderr or "").lower()
-    if "does not exist" in err or "not initialized" in err or "invalid repository" in err:
-        print("PROBE: repo reachable but NOT initialized — NAS runbook branch: borg init")
+    if "does not exist" in err or "not initialized" in err or "not a valid repository" in err:
+        # verified 2026-10-02 on a fresh BorgBase repo: their side creates an
+        # EMPTY directory — "not a valid repository" is a borg-level reply
+        # (key auth already succeeded); borg init must run client-side.
+        print("PROBE: repo reachable (key auth OK) but NOT initialized — run borg init client-side")
         print(proc.stderr.strip()[:300])
         return 2
-    if "passphrase" in err or "authentication" in err and "publickey" not in err:
-        print("PROBE: repo has a non-empty passphrase (or key auth failed) — inspect manually")
+    if "passphrase" in err:
+        print("PROBE: repo initialized with a non-empty passphrase — passphrase mismatch")
         print(proc.stderr.strip()[:300])
         return 3
-    print("PROBE FAILED (auth/path?):")
+    if "permission denied" in err:
+        print("PROBE: ssh key auth FAILED — the key is not attached/recognized")
+        print(proc.stderr.strip()[:300])
+        return 4
+    print("PROBE FAILED (unexpected):")
     print(proc.stderr.strip()[:300])
     return 1
 

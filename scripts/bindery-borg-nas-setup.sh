@@ -3,7 +3,7 @@
 #
 # Runs ON the TrueNAS box as root, via the chipnet escape hatch:
 #   scp scripts/bindery-borg-nas-setup.sh orpheus@<nas>:/tmp/   (laptop)
-#   just infra nas "bash /tmp/bindery-borg-nas-setup.sh <REPO_ID>"
+#   just infra nas "bash /tmp/bindery-borg-nas-setup.sh uwiz8tuj"
 #
 # Idempotent: every step checks current state first and no-ops. Re-running
 # after a partial failure converges instead of duplicating. All complexity
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-REPO_ID="${1:?usage: bindery-borg-nas-setup.sh <REPO_ID>}"
+REPO_ID="${1:?usage: bindery-borg-nas-setup.sh uwiz8tuj}"
 REPO_URL="ssh://${REPO_ID}@${REPO_ID}.repo.borgbase.com/./repo"
 KEY=/root/.ssh/borgbase_bindery_ed25519
 PASSFILE=/root/.config/borgmatic/bindery-passphrase
@@ -46,11 +46,11 @@ fi
 
 echo "== 3/6 borgmatic config"
 if [ -f /tmp/bindery-borgmatic.yaml ]; then
-    grep -q "<REPO_ID>" /tmp/bindery-borgmatic.yaml && {
-        echo "   FAIL: the scp'd config still carries the <REPO_ID> placeholder —" >&2
-        echo "   bake the real id into the repo copy first (SRE, post create-repo)" >&2
+    if ! grep -q "$REPO_ID" /tmp/bindery-borgmatic.yaml; then
+        echo "   FAIL: the scp'd config does not reference this repo id ($REPO_ID) —" >&2
+        echo "   scp the current committed scripts/bindery-borgmatic.yaml (PR branch)" >&2
         exit 1
-    }
+    fi
     install -D -m 0600 /tmp/bindery-borgmatic.yaml "$CONFIG"
     rm -f /tmp/bindery-borgmatic.yaml
     echo "   installed: $CONFIG"

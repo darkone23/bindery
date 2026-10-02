@@ -142,25 +142,21 @@ default — every action re-checks live state first):
 
 ```bash
 python3 scripts/borgbase-repo-setup.py status        # read-only
-python3 scripts/borgbase-repo-setup.py create-repo   # creates bindery-archive (us, 16G cap)
+python3 scripts/borgbase-repo-setup.py create-repo   # idempotent; born with a throwaway probe key
 ```
 
-One-time verification (server-side init state is confirmed, not assumed):
-generate a throwaway probe keypair, register + attach it, probe, remove:
-
-```bash
-ssh-keygen -q -t ed25519 -N '' -C bindery-probe-tmp -f /tmp/bindery-probe-key
-python3 scripts/borgbase-repo-setup.py attach-key --name bindery-probe-tmp \
-    --pub-file /tmp/bindery-probe-key.pub
-python3 scripts/borgbase-repo-setup.py probe --key-file /tmp/bindery-probe-key \
-    --borg-bin ~/borg/nix-profile/bin/borg     # borg 1.4.1 lives here on the paperclip VM
-python3 scripts/borgbase-repo-setup.py detach-key --name bindery-probe-tmp
-shred -u /tmp/bindery-probe-key*              # private half never leaves this host
-```
-
-Then bake the real repo id into `scripts/bindery-borgmatic.yaml` (commit),
-and record the repo facts in this section. The repo id is not a secret
-(the orion repo facts are committed the same way in chipnet).
+One-time verification — DONE 2026-10-02 (GO per the board card): the probe
+key was registered + attached by `create-repo` itself, the probe ran
+`borg list` through it against `ssh://uwiz8tuj@uwiz8tuj.repo.borgbase.com/./repo`,
+and the verdict is **key auth OK, repo NOT initialized** ("is not a valid
+repository" = borg-level reply on an empty dir). BorgBase's server side
+creates an EMPTY directory — **`borg init` must run client-side** (the NAS
+setup script's step 6 branch does exactly that with the on-box passphrase;
+the orion-borg tasks comment claiming server-side init is wrong — its own
+README state machine agrees with this probe). The probe key stays attached
+until the NAS key takes over (the repo needs ≥1 full-access key at all
+times), then `detach-key --name bindery-probe-tmp` removes it and its
+stashed private half.
 
 ### NAS side — laptop hands (chipnet escape hatch; one op per invocation)
 
@@ -188,7 +184,7 @@ scp -i ~/.ssh/orpheus scripts/bindery-borg-nas-setup.sh \
     orpheus@192.168.8.220:/tmp/bindery-borg-nas-setup.sh
 cd ~/src/chipnet
 HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
-    just infra nas "bash /tmp/bindery-borg-nas-setup.sh <REPO_ID>"
+    just infra nas "bash /tmp/bindery-borg-nas-setup.sh uwiz8tuj"
 HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
     just infra nas "rm -f /tmp/bindery-borg-nas-setup.sh"
 
@@ -202,16 +198,13 @@ The setup script (committed, reviewable — the PR digest is the review):
 generates the keypair + passphrase **on-box** (0600, never echoed),
 installs the config, builds the borg+borgmatic venv
 (`/root/.local/bindery-borg`, pip — TrueNAS SCALE python3), validates the
-config against borgmatic 2.x, and makes the first connection to the
-server-side-initialized repo — classifying the init state itself:
-
-- `borg list` with an empty passphrase succeeds → repo was
-  server-side-initialized with no password → it sets the on-box
-  passphrase via `borg key change-passphrase`
-  (`BORG_PASSPHRASE='' BORG_NEW_PASSPHRASE="$(cat …)"`).
-- `borg list` says the repo is not initialized → it runs
-  `borg init --encryption repokey` with the on-box passphrase
-  (`BORG_NEW_PASSPHRASE`).
+config against borgmatic 2.x, and makes the first connection — the
+2026-10-02 probe already resolved the init state (empty dir → **client
+`borg init`**), which is the script's step-6 branch: it probes with an
+empty passphrase first (defensive no-op branch kept: if a future repo
+state differs, the script classifies instead of guessing), then runs
+`borg init --encryption repokey` with `BORG_NEW_PASSPHRASE` from the
+on-box file.
 
 ### First backup + evidence (laptop hands)
 
@@ -245,13 +238,15 @@ remove `/root/.config/borgmatic/bindery.yaml`,
 `/root/.ssh/borgbase_bindery_ed25519*`, `/root/.local/bindery-borg`, and
 the cron line. The dataset itself is untouched.
 
-### Repo facts (fill in at wiring time)
+### Repo facts
 
-- BorgBase repo `bindery-archive`, id `<REPO_ID>`
-  (`ssh://<REPO_ID>@<REPO_ID>.repo.borgbase.com/./repo`), region us,
-  quota 16 GB enabled, borg1.
-- NAS key `bindery-nas` attached with full access (prune needs delete
-  rights); on-NAS keypair `/root/.ssh/borgbase_bindery_ed25519`,
+- BorgBase repo `bindery-archive`, id `uwiz8tuj`
+  (`ssh://uwiz8tuj@uwiz8tuj.repo.borgbase.com/./repo`), region us,
+  quota 16384 MB (16 GB) **enabled**, borg1, created 2026-10-02 (post-GO).
+- Attached keys (2026-10-02): `bindery-probe-tmp` (throwaway verification
+  key — REMOVES once `bindery-nas` is attached; the repo keeps ≥1 key).
+- NAS key `bindery-nas` to be attached with full access (prune needs
+  delete rights); on-NAS keypair `/root/.ssh/borgbase_bindery_ed25519`,
   passphrase `/root/.config/borgmatic/bindery-passphrase` (0600, on-box
   only).
 
