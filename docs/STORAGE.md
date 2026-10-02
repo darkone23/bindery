@@ -168,6 +168,11 @@ transport `just storage-sync` already sanctions). Every recipe invocation
 carries `SECRETSPEC_REASON` (agent policy) and the LAN host override:
 
 ```bash
+# 0. one-time: fetch the wiring branch (the scp'd files must be the baked
+#    ones — they reference the real repo id):
+cd ~/src/bindery
+git fetch origin hol-261-borgbase && git checkout hol-261-borgbase
+
 # 1. keypair on the NAS (idempotent check first; rc≠0/traceback = absent,
 #    proceed — the recipe fails loudly, it never reports silent absence):
 cd ~/src/chipnet
@@ -176,7 +181,8 @@ HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
 
 # 2. install the runbook's two files from the bindery checkout, then run
 #    the setup script (keypair+passphrase on-box, config install, venv,
-#    schema check, first connection — see the script; idempotent):
+#    schema check — see the script; idempotent). First run STOPS after
+#    step 5 with "NAS key not attached yet" — expected:
 cd ~/src/bindery
 scp -i ~/.ssh/orpheus scripts/bindery-borgmatic.yaml \
     orpheus@192.168.8.220:/tmp/bindery-borgmatic.yaml
@@ -185,13 +191,19 @@ scp -i ~/.ssh/orpheus scripts/bindery-borg-nas-setup.sh \
 cd ~/src/chipnet
 HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
     just infra nas "bash /tmp/bindery-borg-nas-setup.sh uwiz8tuj"
-HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
-    just infra nas "rm -f /tmp/bindery-borg-nas-setup.sh"
 
 # 3. print the public half → paste into the HOL-261 thread; SRE attaches
 #    it to the BorgBase repo (attach-key --name bindery-nas --pub-file …):
 HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
     just infra nas "cat /root/.ssh/borgbase_bindery_ed25519.pub"
+
+# 4. after SRE confirms the attach: re-run the setup script — it no-ops
+#    through steps 1-5 and completes step 6 (first connection → borg init
+#    with the on-box passphrase):
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "bash /tmp/bindery-borg-nas-setup.sh uwiz8tuj"
+HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
+    just infra nas "rm -f /tmp/bindery-borg-nas-setup.sh"
 ```
 
 The setup script (committed, reviewable — the PR digest is the review):

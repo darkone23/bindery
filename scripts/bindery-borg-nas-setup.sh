@@ -90,6 +90,12 @@ else
         echo "   repo NOT initialized — client-side init with the on-box passphrase"
         BORG_NEW_PASSPHRASE="$(cat "$PASSFILE")" "$BORG" init --encryption repokey "$REPO_URL"
         rm -f /tmp/bindery-repo-probe.txt /tmp/bindery-repo-probe.err
+    elif printf '%s' "$stderr" | grep -qi "permission denied"; then
+        echo "   NAS key not attached to the repo yet (expected on first run) —" 
+        echo "   steps 1-5 are DONE. Next: paste the pub key (step 3 of the runbook)" >&2
+        echo "   to SRE for the BorgBase attach, then RE-RUN this script — it no-ops" >&2
+        echo "   through steps 1-5 and completes step 6 (borg init)." >&2
+        exit 0
     else
         echo "   FAIL: repo unreachable or unexpected state — inspect manually:" >&2
         printf '%s\n' "$stderr" >&2
