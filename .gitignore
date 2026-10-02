@@ -13,3 +13,5 @@ build/
 !dataset/uttara-sarga-pages.json
 !dataset/uttara-eText-QC.md
 !dataset/uttara-eText-PROVENANCE.md
+# committed HOL-263 correspondences (datasets + raw inventory)
+!dataset/correspondences/
