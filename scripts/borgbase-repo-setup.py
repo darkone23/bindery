@@ -202,9 +202,9 @@ def attach(key_id: int, key_name: str) -> None:
     gql(
         """mutation RepoEdit($id: String!, $fullAccessKeys: [String]!) {
             repoEdit(id: $id, fullAccessKeys: $fullAccessKeys) {
-              repoEdited { id }
+              repoEdited { id fullAccessKeyList { id name } }
             } }""",
-        {"id": repo["id"], "fullAccessKeys": [str(i) for i in remaining]},
+        {"id": repo["id"], "fullAccessKeys": [str(i) for i in [*current, key_id]]},
     )
 
 
