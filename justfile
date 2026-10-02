@@ -152,6 +152,30 @@ dataset-fetch:
         "https://ebooks.iskcondesiretree.com/pdf/Valmiki_Ramayan/Valmiki_Ramayana_Gita_Press.pdf"
     pdfinfo dataset/Valmiki_Ramayana_Gita_Press.pdf
 
+# --- M5 English extraction + ToC mapping (HOL-264) ----------------------------
+
+# per-page -layout extraction -> chrome cleanup -> diacritics normalization;
+# ToC dataset (archive 21-58 / 1170-1190), per-sarga prose, QC report.
+# Outputs build/english/{pages,sargas,toc.json,sargas-index.json,qc.*}.
+# Needs the source PDF at dataset/ (gitignored; `just dataset-fetch`).
+extract-english PDF="dataset/Valmiki_Ramayana_Gita_Press.pdf" OUT="build/english":
+    nix develop -c python3 extract_english.py --pdf {{PDF}} --out {{OUT}}
+
+# stage the M5 outputs to the paperclip-VM staging dir (HOL-258 pattern):
+# per-page + per-sarga text, datasets, QC + a provenance manifest (source
+# url/sha256, extraction commit, mapping version). TrueNAS sync = laptop
+# two-hop (`just storage-sync` pattern; see docs/ENGLISH-EXTRACTION.md).
+m5-stage OUT="build/english" ROOT="$HOME/bindery-m5-storage/english" PDF="dataset/Valmiki_Ramayana_Gita_Press.pdf":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p {{ROOT}}
+    rsync -a --delete {{OUT}}/pages {{OUT}}/sargas {{OUT}}/toc.json \
+        {{OUT}}/sargas-index.json {{OUT}}/qc.json {{OUT}}/qc.md {{ROOT}}/
+    cp dataset/toc-gita-press-english.json dataset/english-extraction-QC.md {{ROOT}}/ 2>/dev/null || true
+    COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    SHA="$(sha256sum {{PDF}} | cut -d' ' -f1)"
+    nix develop -c python3 scripts/m5_manifest.py {{ROOT}} "$COMMIT" "$SHA"
+
 # HOL-263: validate dataset/correspondences/*.json against the
 # correspondences/v1 schema (enum/id/sarga hygiene; see dataset/correspondences/README.md)
 correspondences-validate:

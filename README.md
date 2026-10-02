@@ -51,6 +51,19 @@ repo scaffold + ingest of the Gita Press *Valmiki-Ramayana* PDF).
   `just fascicle`: typeset (WeasyPrint + Lohit, 70s-mirror profile,
   editorial-note title page) → trim → impose → **66 duplex Letter
   sheets in 17 signatures** (`build/press.pdf` + `proof-screen.pdf`).
+- **M5 — Gita Press English extraction + ToC mapping** (HOL-264, board
+  directive: Gita Press English prose is canonical): `just extract-english`
+  runs the deterministic English pass — per-page `-layout` extraction,
+  running-head/folio chrome strip, legacy-diacritics → IAST normalization
+  (mapping table v1, zero unmapped glyphs in English zones), dotted-leader
+  ToC parse (archive 21–58 / 1170–1190 → per-kanda, per-canto structured
+  dataset with printed→archive offsets Part I +0 / Part II +1167), and a
+  sequence-walk per-sarga assembly (645/645 sargas, closer+heading markers,
+  print quirks flagged never repaired). Committed datasets:
+  `dataset/toc-gita-press-english.json`, `dataset/english-extraction-QC.md`,
+  `sargas-index.json`; per-page + per-sarga text stages to
+  `~/bindery-m5-storage/english/` (TrueNAS via the HOL-258 two-hop). See
+  `docs/ENGLISH-EXTRACTION.md`.
 
 ## Interface
 
@@ -76,6 +89,8 @@ just proof            # the full M1 chain
 just uttara-eText     # M4a: harvest Uttara 42-111 e-text from ramayana.info -> dataset/
 just uttara-gapfill   # M4a: close dataset field gaps (alt/IAST/scan-OCR) + QC report
 just fascicle         # M4b/c: typeset 42-111 -> trim -> impose -> build/press.pdf
+just extract-english  # M5: per-page text + ToC dataset + per-sarga prose + QC (HOL-264)
+just m5-stage         # M5: stage build/english to ~/bindery-m5-storage/ + manifest
 ```
 
 ## Layout
