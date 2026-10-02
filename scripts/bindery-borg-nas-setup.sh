@@ -68,7 +68,14 @@ else
 fi
 
 echo "== 4/6 borg + borgmatic venv ($VENV)"
-if [ -x "$BORGMATIC" ] && [ -x "$BORG" ]; then
+# PATH-free invocation requirement: the GUI cron job calls this venv's
+# borgmatic directly, but middlewared (which schedules GUI cron jobs
+# in-process) has NO PATH in its environment (checked /proc environ,
+# systemd unit env 2026-10-02) — and /usr/local/bin is on the read-only
+# rootfs, so a PATH-exposure symlink is impossible. The borgmatic shim
+# below injects the borg bundle dir into PATH before exec'ing the real
+# binary (borgmatic.real), which resolves `borg` via that inherited PATH.
+if [ -x "$VENV/bin/borgmatic.real" ] && [ -x "$BORG" ]; then
     echo "   present: $("$BORG" --version | head -1) / $("$BORGMATIC" --version | head -1)"
 else
     # TrueNAS SCALE (Debian 12, glibc 2.36) blocks apt ("Package management
@@ -97,12 +104,10 @@ else
     mkdir -p "$VENV"
     tar xzf /tmp/bindery-borg-bundle.tgz -C "$VENV"
     rm -f /tmp/bindery-borg-bundle.tgz
-    # borgmatic resolves `borg` via PATH (local_path='borg'); GUI cron jobs
-    # are scheduled by middlewared in-process (never rendered to cron.d —
-    # cron.py run()/etc.py), so PATH exposure must not rely on shell rc
-    # files or cron lines: one symlink in /usr/local/bin (on every
-    # standard PATH, incl. the middlewared scrub cron line).
-    ln -sf "$BORG" /usr/local/bin/borg
+    mv -f "$VENV/bin/borgmatic" "$VENV/bin/borgmatic.real"
+    printf '#!/bin/sh\nPATH="%s:$PATH" exec "%s" "$@"\n' "$BORG_DIR" "$VENV/bin/borgmatic.real" \
+        > "$VENV/bin/borgmatic"
+    chmod 755 "$VENV/bin/borgmatic"
     echo "   installed: $("$BORG" --version | head -1) / $("$BORGMATIC" --version | head -1)"
 fi
 
