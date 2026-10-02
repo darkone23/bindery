@@ -162,3 +162,9 @@ correspondences-validate:
 correspondences-build:
     python3 scripts/build_dor_dataset.py
     python3 scripts/validate_correspondences.py
+
+# HOL-263: render the correspondences as a board-viewable HTML page
+# (self-contained, no assets/JS) — also --format md for issue documents
+correspondences-html:
+    python3 scripts/render_correspondences.py --format html \
+        --out dataset/correspondences/correspondences.html

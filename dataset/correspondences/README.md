@@ -89,4 +89,8 @@ then points to the nearest contextual sarga or is omitted.
 | file | source | entries |
 |------|--------|---------|
 | `dream-of-ravan.json` | *The Dream of Ravan: A Mystery* (1895 ed.) | 20 |
-| `bajrangbali-1976.json` | *Bajrangbali* (1976 film) | 7 (scaffold) |
+| `bajrangbali-1976.json` | *Bajrangbali* (1976 film) | 7 (caption-located) |
+
+Board-viewable rendering: `correspondences.html` (self-contained page,
+regenerate with `just correspondences-html`; markdown via
+`scripts/render_correspondences.py --format md`).
