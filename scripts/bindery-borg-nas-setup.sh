@@ -29,6 +29,10 @@ VENV=/root/.local/bindery-borg
 # a PATH prefix pointing at BORG_DIR (docs/STORAGE.md §4).
 BORG_DIR="$VENV/borg-dir"
 BORG="$BORG_DIR/borg.exe"
+# borgmatic resolves `borg` (no suffix) via PATH; the official onedir
+# bundle names its binary `borg.exe`, so the shim's PATH would expose a
+# file borgmatic can never find. Publish the un-suffixed name.
+[ -d "$BORG_DIR" ] && ln -sf borg.exe "$BORG_DIR/borg"
 BORGMATIC="$VENV/bin/borgmatic"
 
 echo "== 1/6 dedicated keypair"
