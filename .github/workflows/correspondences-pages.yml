@@ -1,0 +1,44 @@
+# HOL-263: publish the Ramayana correspondences page to GitHub Pages.
+# Renders dataset/correspondences/*.json with the stdlib-only renderer
+# (no nix needed) and deploys the single self-contained HTML file.
+# Site: https://darkone23.github.io/bindery/
+
+name: correspondences-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dataset/correspondences/**"
+      - "scripts/render_correspondences.py"
+      - ".github/workflows/correspondences-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render the correspondences page
+        run: |
+          mkdir -p dist
+          python3 scripts/render_correspondences.py --format html --out dist/index.html
+          python3 scripts/render_correspondences.py --format md --out dist/correspondences.md
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
