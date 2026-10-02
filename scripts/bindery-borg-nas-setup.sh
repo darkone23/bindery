@@ -28,11 +28,12 @@ VENV=/root/.local/bindery-borg
 # ZFS root). borgmatic shells out to `borg` via PATH; the cron line carries
 # a PATH prefix pointing at BORG_DIR (docs/STORAGE.md §4).
 BORG_DIR="$VENV/borg-dir"
-BORG="$BORG_DIR/borg.exe"
-# borgmatic resolves `borg` (no suffix) via PATH; the official onedir
-# bundle names its binary `borg.exe`, so the shim's PATH would expose a
-# file borgmatic can never find. Publish the un-suffixed name.
-[ -d "$BORG_DIR" ] && ln -sf borg.exe "$BORG_DIR/borg"
+# borgmatic resolves `borg` (no suffix) via PATH. The onedir bundle names
+# its binary borg.exe; a SYMLINK borg -> borg.exe makes the PyInstaller
+# bootloader die (SIGKILL via bash, ENOENT "not found" via dash — argv[0]
+# path sensitivity), so the binary is RENAMED to borg instead (proven
+# 2026-10-02, all contexts: foreground/background/dash/bash/sudo).
+BORG="$BORG_DIR/borg"
 BORGMATIC="$VENV/bin/borgmatic"
 
 echo "== 1/6 dedicated keypair"
@@ -108,6 +109,9 @@ else
     mkdir -p "$VENV"
     tar xzf /tmp/bindery-borg-bundle.tgz -C "$VENV"
     rm -f /tmp/bindery-borg-bundle.tgz
+    # rename for borgmatic's PATH lookup (see BORG note above; a symlink
+    # of this name kills the PyInstaller bootloader)
+    mv -f "$BORG_DIR/borg.exe" "$BORG_DIR/borg"
     mv -f "$VENV/bin/borgmatic" "$VENV/bin/borgmatic.real"
     printf '#!/bin/sh\nPATH="%s:$PATH" exec "%s" "$@"\n' "$BORG_DIR" "$VENV/bin/borgmatic.real" \
         > "$VENV/bin/borgmatic"

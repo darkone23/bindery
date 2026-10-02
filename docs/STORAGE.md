@@ -236,7 +236,7 @@ HOMEINFRA_NAS_HOST=192.168.8.220 SECRETSPEC_REASON=hol-261-§4 \
 Paste the archive listing into the HOL-261 thread (acceptance evidence),
 then escrow the repo key to paper
 (`borg key export --paper` from
-`/root/.local/bindery-borg/borg-dir/borg.exe` with
+`/root/.local/bindery-borg/borg-dir/borg` with
 `BORG_PASSCOMMAND=cat /root/.config/borgmatic/bindery-passphrase`;
 write the output to a 0600 file under /root and hand it to the board for
 printing — never paste the key material into the issue thread).
@@ -272,7 +272,12 @@ the UI. The dataset itself is untouched.
   (`ssh://uwiz8tuj@uwiz8tuj.repo.borgbase.com/./repo`), region us,
   quota 16384 MB (16 GB) **enabled**, borg1, created 2026-10-02 (post-GO).
 - Attached keys (2026-10-02): `bindery-probe-tmp` (throwaway verification
-  key — REMOVES once `bindery-nas` is attached; the repo keeps ≥1 key).
+  key — detached + deleted after `bindery-nas` landed, key id 232911).
+  Encryption: repokey mode, initialized 2026-10-02 by the NAS setup
+  script (client-side `borg init --encryption repokey` with the on-box
+  passphrase). Tooling note: the bundle binary is renamed `borg.exe` →
+  `borg` — borgmatic resolves `borg` via PATH and a symlink of that name
+  kills the PyInstaller bootloader (SIGKILL/ENOENT depending on shell).
 - NAS key `bindery-nas` to be attached with full access (prune needs
   delete rights); on-NAS keypair `/root/.ssh/borgbase_bindery_ed25519`,
   passphrase `/root/.config/borgmatic/bindery-passphrase` (0600, on-box
