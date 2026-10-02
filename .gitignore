@@ -13,3 +13,4 @@ build/
 !dataset/uttara-sarga-pages.json
 !dataset/uttara-eText-QC.md
 !dataset/uttara-eText-PROVENANCE.md
+.devenv.flake.nix
