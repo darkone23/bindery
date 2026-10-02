@@ -151,3 +151,14 @@ dataset-fetch:
     curl -fL --retry 3 -o dataset/Valmiki_Ramayana_Gita_Press.pdf \
         "https://ebooks.iskcondesiretree.com/pdf/Valmiki_Ramayan/Valmiki_Ramayana_Gita_Press.pdf"
     pdfinfo dataset/Valmiki_Ramayana_Gita_Press.pdf
+
+# HOL-263: validate dataset/correspondences/*.json against the
+# correspondences/v1 schema (enum/id/sarga hygiene; see dataset/correspondences/README.md)
+correspondences-validate:
+    python3 scripts/validate_correspondences.py
+
+# HOL-263: rebuild dream-of-ravan.json from the raw episode inventory
+# (run after editing scripts/build_dor_dataset.py corrections)
+correspondences-build:
+    python3 scripts/build_dor_dataset.py
+    python3 scripts/validate_correspondences.py
